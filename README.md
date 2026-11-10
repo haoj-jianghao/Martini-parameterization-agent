@@ -44,6 +44,28 @@ Each site fetches or downloads the rest itself: the GROMACS manual for its versi
 
 ## Install
 
+### With the setup script (recommended)
+
+Clone this repository, download the release assets `martini-agent-references-v7.tar.gz` and `SHA256SUMS` into one folder, and download the two OPLS/2020 SI files (`jp3c06602_si_002.txt`, `jp3c06602_si_003.txt`) into another. Install GROMACS yourself. Then, from the repository folder:
+
+```bash
+python3 tools/setup_site.py \
+    --bundle /path/to/martini-agent-references-v7.tar.gz \
+    --si-dir /path/to/opls2020_si \
+    --gmx /path/to/gmx                 # optional if gmx is on PATH
+```
+
+The script needs only Python 3.8+ and conda (or mamba), and installs into `~/martini-agent-lab` unless you pass `--root`. It creates the conda env `martini-agent` from `environment.yml` (or uses `--python`), installs opls-ff-lite and points it to MOPAC, installs the OPLS/2020 SI, copies the skill into `~/.claude/skills/` and checks it against the skill lock, unpacks and checks the references bundle, finds GROMACS, writes `environment.json`, downloads the GROMACS manual for your version and the polyply SI, re-checks the adapted MDP (`grompp -maxwarn 0` and a 10 ps run on the bundled water box), runs the index check and compares your references with the manifest. Steps already done are skipped, so re-run it after you supply what it reports as missing:
+
+- the Souza 2021 and Alessandri 2022 articles and SI, placed under `references/original/papers/Souza2021/` and `references/original/papers/alessandri2022/` as `article.pdf` and `supporting-information.pdf` (the script derives their text);
+- the prepare-mode review (next section, step 3), which writes the papers' `sources.json` and `references/index/readiness.json`.
+
+Then run it once more with `--lock` to create the site's reference lock. It refuses while anything is failed or missing. `python3 tools/setup_site.py --help` lists every option.
+
+### By hand
+
+The same steps, one by one:
+
 ```bash
 export MARTINI_AGENT_ROOT="$HOME/martini-agent-lab"
 export SKILL_DIR="$HOME/.claude/skills/build-martini-agent"
