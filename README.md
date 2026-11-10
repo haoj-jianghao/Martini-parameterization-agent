@@ -1,8 +1,8 @@
 # Martini parameterization agent
 
-An agent skill (`build-martini-agent`) for agentic coding tools such as Claude Code. It turns a SMILES string into a Martini 3 GROMACS model (mapping, bead types, charges, bonded terms, topology, coordinates) and checks that the model runs in water.
+An agent skill (`build-martini-agent`) for agentic coding tools such as Claude Code. It turns a SMILES string into a Martini 3 GROMACS model (mapping, bead types, charges, bonded terms, topology, coordinates) and checks that the model runs in water. It is distributed together with its OPLS engine, `opls-ff-lite` 0.1.0 (`vendor/`), a reference manifest and a bundle of the openly licensed references.
 
-The agent makes the chemical decisions: mapping, bead types, charges. Deterministic code in the skill handles geometry, bonded terms, file writing and GROMACS. Bonded terms come from an MD-free method: OPLS + GBSA-OBC2 conformer ensembles and Hessians, with topologies from `opls-ff-gen` (`build-martini-agent/references/bonded.md`). The only dynamics are coarse-grained checks of the finished model.
+The agent makes the chemical decisions: mapping, bead types, charges. Deterministic code in the skill handles geometry, bonded terms, file writing and GROMACS. Bonded terms come from an MD-free method: OPLS + GBSA-OBC2 conformer ensembles and Hessians, with topologies from `opls-ff-lite`, the reduced copy of opls-ff-gen that needs only RDKit, NumPy and MOPAC (`build-martini-agent/references/bonded.md`). The only dynamics are coarse-grained checks of the finished model.
 
 Modes: **prepare** (a pinned, locked reference library, once per site), **generate** (one model per SMILES), **compare** (a frozen result against a published model).
 
