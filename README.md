@@ -109,7 +109,7 @@ Then follow `build-martini-agent/references/environment.md`, section 0:
 
 ## Generating a topology
 
-The agent turns one SMILES into a tested Martini 3 topology. It makes the chemical decisions itself (mapping, bead types, charges, virtual sites) and runs the skill's scripts for everything else. A run takes a few minutes per molecule: in our 26-molecule headless benchmark with Claude Haiku 5.5, the median was about 5 minutes (80–460 s) and the total cost $6.99.
+The agent turns one SMILES into a tested Martini 3 topology. It makes the chemical decisions itself (mapping, bead types, charges, virtual sites) and runs the skill's scripts for everything else. A run takes a few minutes per molecule. For now, only claude is tested, but codex is likely to work as well. 
 
 ### 1. Start a session
 
