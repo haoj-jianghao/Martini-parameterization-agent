@@ -14,7 +14,8 @@ Modes: **prepare** (a pinned, locked reference library, once per site), **genera
 | --- | --- |
 | The skill | `build-martini-agent/` (copy the whole folder; `SKILL.md` alone is not self-contained) |
 | Reference manifest | `reference_manifest.json`: every reference source, how to acquire it, licence status, bundled or not, SHA-256 of every file |
-| Locks | `locks/skill.lock.json` (skill v12), `locks/references.lock.json` (reference snapshot v7, our site) |
+| Locks | `locks/skill.lock.json` (skill v13), `locks/references.lock.json` (reference snapshot v7, our site) |
+| OPLS engine | `vendor/opls_ff_lite-0.1.0-py3-none-any.whl` and its source package, with `vendor/SHA256SUMS` |
 | Maintainer tool | `tools/make_manifest.py` (build the manifest, assemble the bundle) |
 | Python environment | `environment.yml` |
 | References bundle | Release asset `martini-agent-references-v7.tar.gz` with `SHA256SUMS`, not in git |
@@ -34,8 +35,9 @@ Each site fetches or downloads the rest itself: the GROMACS manual for its versi
 | Need | Notes |
 | --- | --- |
 | Linux or WSL | On Windows, keep the workspace in the WSL filesystem |
-| Python env with RDKit, NumPy, SciPy, openpyxl | `conda env create -f environment.yml`. The reference index was built with RDKit 2025.09.6; other versions can change conformer searches and the index check |
-| `opls-ff-gen` with MOPAC (and xTB) | OPLS topologies for bonded terms; its own environment is fine. Install from the OPLS-ff-gen repository with its `environment.yml`; `pip install --no-deps` avoids OpenMM, which the workflow does not use. **Version tested: commit `0b925c5` (0.3.0 plus later changes), not yet released; a pinned release is pending.** |
+| Python env with RDKit, NumPy, SciPy, openpyxl, MOPAC | `conda env create -f environment.yml`. The reference index was built with RDKit 2025.09.6; other versions can change conformer searches and the index check |
+| `opls-ff-lite` 0.1.0 (in `vendor/`) | OPLS/2020 topologies for bonded terms; needs only RDKit, NumPy and MOPAC, so it installs into the same environment. MIT; two AmberTools data files are GPL-3.0 (see the package's `NOTICE`). It is the reduced copy of opls-ff-gen and writes the same topologies with MMFF94 geometry |
+| OPLS/2020 parameter files | Supporting Information of Jorgensen et al., *J. Phys. Chem. B* 2024 (https://doi.org/10.1021/acs.jpcb.3c06602): `jp3c06602_si_002.txt` and `jp3c06602_si_003.txt`. They may not be redistributed, so download them yourself |
 | GROMACS | Tested with 2026.3. A GPU is optional |
 | Poppler (`pdftotext`, `pdfinfo`, `pdftoppm`) | PDF search and rendering |
 | An agentic coding tool with a shell | Claude Code is tested. Codex is likely to work but untested |
@@ -46,21 +48,28 @@ Each site fetches or downloads the rest itself: the GROMACS manual for its versi
 export MARTINI_AGENT_ROOT="$HOME/martini-agent-lab"
 export SKILL_DIR="$HOME/.claude/skills/build-martini-agent"
 
-# 1. Skill
+# 1. Python environment and the OPLS engine
+conda env create -f environment.yml && conda activate martini-agent
+(cd vendor && sha256sum -c SHA256SUMS)
+python -m pip install --no-deps vendor/opls_ff_lite-0.1.0-py3-none-any.whl
+opls-ff-lite install-si /path/to/jp3c06602_si_002.txt /path/to/jp3c06602_si_003.txt
+opls-ff-lite doctor          # every item must be ok
+
+# 2. Skill
 mkdir -p "$(dirname "$SKILL_DIR")" && cp -r build-martini-agent "$SKILL_DIR"
 
-# 2. References bundle (download the release asset first)
+# 3. References bundle (download the release asset first)
 sha256sum -c SHA256SUMS
 mkdir -p "$MARTINI_AGENT_ROOT/config" "$MARTINI_AGENT_ROOT/runs"
 tar -xzf martini-agent-references-v7.tar.gz -C "$MARTINI_AGENT_ROOT"
 
-# 3. Configuration
+# 4. Configuration
 cp "$SKILL_DIR/assets/environment.example.json" "$MARTINI_AGENT_ROOT/environment.json"
 ```
 
 Then follow `build-martini-agent/references/environment.md`, section 0:
 
-1. In `environment.json`, set the force-field ITP paths, `python_command` (absolute path of the env's `python`), `gromacs_command`, `opls_ff_gen_command` and `gromacs_documentation_version`. The template already points to the water box, the adapted MDP and the PEO data.
+1. In `environment.json`, set the force-field ITP paths, `python_command` (absolute path of the env's `python`), `gromacs_command` and `gromacs_documentation_version`. `opls_ff_gen_command` is already `["opls-ff-lite"]`; give its absolute path if the agent's shell does not activate the environment. The template already points to the water box, the adapted MDP and the PEO data.
 2. Fetch the GROMACS manual pages and PDF for your version and the polyply SI. Download the two Martini papers and SI from the publishers. Derive text with `pdftotext -layout` (environment.md sections 5 and 6).
 3. If GROMACS is not 2026.3, re-check the adapted MDP: `grompp -maxwarn 0` and a 10 ps run (section 6).
 4. Run `python "$SKILL_DIR/scripts/build_index.py" check "$MARTINI_AGENT_ROOT/references"`. It reports `identical` with the same bytes and RDKit version. Then write `references/index/readiness.json` (section 7).

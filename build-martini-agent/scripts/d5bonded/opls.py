@@ -1,9 +1,10 @@
-"""OPLS-AA topology for stage 4 from opls-ff-gen (OPLS/2020), reduced to one interface (no MD).
+"""OPLS-AA topology for stage 4 from an OPLS/2020 engine, reduced to one interface (no MD).
 
-opls-ff-gen gives 1.14*CM1A-LBCC charges for uncharged species. Its default GFN2-xTB geometry step runs in vacuum
-and moves protons in zwitterions and ammonium ions (NH3+ -> COO-), which it then rejects; charged species
-therefore use an MMFF94 geometry (bonding fixed) and CM1A charges. opls-ff-gen imports OpenMM only for its --qm
-torsion fit, which is not used here.
+The engine is opls_ff_gen_command: opls-ff-lite (shipped with the release) or the full opls-ff-gen; with MMFF94
+geometry both write identical topologies. Uncharged species get 1.14*CM1A-LBCC charges on the engine's default
+geometry (MMFF94 for opls-ff-lite, GFN2-xTB for opls-ff-gen). The full tool's vacuum xTB step moves protons in
+zwitterions and ammonium ions (NH3+ -> COO-), which it then rejects; charged species therefore always use an MMFF94
+geometry (bonding fixed) and CM1A charges. The full tool imports OpenMM only for its --qm torsion fit, not used here.
 Atom order is engine-defined. It is mapped onto the RDKit AddHs order by graph isomorphism, so a changed bond graph
 is an error rather than a silent mislabelling. Equivalent atoms may swap; they carry equal parameters, and
 chirality comes from the conformers, not from the force field.

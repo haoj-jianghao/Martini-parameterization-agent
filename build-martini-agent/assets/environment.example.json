@@ -28,7 +28,7 @@
     "gmx"
   ],
   "opls_ff_gen_command": [
-    "opls-ff-gen"
+    "opls-ff-lite"
   ],
   "bonded": {
     "method": "d5_opls_obc2_numpy",

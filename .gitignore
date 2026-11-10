@@ -5,4 +5,4 @@ environment.json
 references/
 runs/
 config/
-*.tar.gz
+martini-agent-references-*.tar.gz

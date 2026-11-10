@@ -20,7 +20,7 @@ Generate mode runs these commands in order, each with `python_command`, from one
 | `scripts/cgbuild.py input <moldir> --smiles S --id ID --name NAME` | Freezes the indexed structure and conformers | SMILES |
 | You write `decisions/design.json` | Mapping, types, charges, virtual sites (stages 2 and 3) | Reference search |
 | `scripts/cgbuild.py search <moldir>` | Runs your index queries and records every hit | `design.json` |
-| `scripts/cgbuild.py bonded <moldir>` | Derives all bonded terms (stage 4) | `opls-ff-gen` |
+| `scripts/cgbuild.py bonded <moldir>` | Derives all bonded terms (stage 4) | OPLS engine (`opls-ff-lite`) |
 | `scripts/cgbuild.py build <moldir>` | Writes ITP, GRO, drawing, records and static checks | `bonded.json` |
 | `scripts/cgbuild.py test <moldir>` | Solvates, adds counterions, runs EM, equilibration and the smoke test | GROMACS |
 | `scripts/cgbuild.py finalize <moldir>` | Writes validation, manifest and report; freezes `baseline/` | |
@@ -33,7 +33,7 @@ Read `references/data-contract.md` before writing run files and `references/vali
 
 ## Experiment boundary
 
-Allow RDKit, Python/NumPy/SciPy, generic graph/geometry libraries, drawing, reference search, PDF rendering, GROMACS, and for stage 4 the OPLS engine `opls-ff-gen`. Do not invoke, import, copy decision algorithms from, or use generated output from Auto-Martini, SMartini, SwarmCG, CGCompiler, Martini Mapper, martinize or other automatic CG parameter generators during generation. Generic parsers and deterministic bookkeeping are allowed.
+Allow RDKit, Python/NumPy/SciPy, generic graph/geometry libraries, drawing, reference search, PDF rendering, GROMACS, and for stage 4 the OPLS engine named by `opls_ff_gen_command` (`opls-ff-lite`, shipped with the release; the full `opls-ff-gen` also works). Do not invoke, import, copy decision algorithms from, or use generated output from Auto-Martini, SMartini, SwarmCG, CGCompiler, Martini Mapper, martinize or other automatic CG parameter generators during generation. Generic parsers and deterministic bookkeeping are allowed.
 
 Allow documented reference fragments and analogous published models. For strict holdout tests use a precurated reference subset; do not search a full topology file containing the target. If the target topology has been seen, mark `reference_exposed`; do not call the run blind independent generation. Do not silently clear that flag. General guidelines and bead definitions remain allowed.
 
@@ -80,7 +80,7 @@ Your remaining decisions are in the mapping:
 1. **Fused rings.** Follow the SI hinge (Souza SI section C4, p. 45-46), as the published polycyclics do (NAPH, QUIN, ANTH, CAFF, TECE): four real beads forming the hinge, and the other ring beads as virtual sites. Declare each in `virtual_sites` with `construction` set to `virtual_sitesn_cog` (centre of the constructing beads) or `virtual_sites3` (an in-plane position). You choose the site and its constructing beads; stage 4 computes the coefficients. A rigid group above four real beads is `blocked`, so change the mapping. If a site is over 0.05 nm from its mapped position, change the construction or move side-chain atoms out of that bead. Avoid a near-straight rigid triangle (`near_linear_rigid_triangle`).
 2. **Masses** are computed, not chosen. Each bead gets its standard size mass (R 72, S 54, T 36), each virtual site 0, and each site's standard mass is split equally over the real beads of its rigid group, keeping the total (CAFF 4 × 63, BZIM 4 × 45). A site outside any rigid group passes its mass to its constructing beads. Stage 4 and `build` use the same rule (`d5bonded/terms.py`, `bead_masses`) and record it in `bonded.json` `masses`. Do not write `mass_amu` in `design.json`; `build` ignores it and lists any difference under the mass check.
 
-Read `bonded.json` before building: its `flags`, its `dropped` list, and any term whose `limitations` says a value was capped or floored. If stage 4 fails (opls-ff-gen or the energy model), the model is `blocked`; report it and do not substitute hand-chosen values.
+Read `bonded.json` before building: its `flags`, its `dropped` list, and any term whose `limitations` says a value was capped or floored. If stage 4 fails (the OPLS engine or the energy model), the model is `blocked`; report it and do not substitute hand-chosen values.
 
 ## Batch mode
 
