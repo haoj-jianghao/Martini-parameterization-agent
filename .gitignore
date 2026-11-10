@@ -1,8 +1,8 @@
 __pycache__/
 *.pyc
-# Never commit site data or the references bundle
-environment.json
-references/
-runs/
-config/
-martini-agent-references-*.tar.gz
+# Never commit site data or the references bundle (root only; the skill has its own references/ folder)
+/environment.json
+/references/
+/runs/
+/config/
+/martini-agent-references-*.tar.gz
