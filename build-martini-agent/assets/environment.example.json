@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "reference_root": "references",
+  "reference_lock": "config/references.lock.json",
+  "reference_index": "references/index/models.jsonl",
+  "runs_root": "runs",
+  "force_field": {
+    "version": "Martini 3.0.0",
+    "core_itp": null,
+    "solvent_itp": null,
+    "ions_itp": null,
+    "solvent_coordinates": "references/original/tutorial/parametrize_new_small_molecule/ENAP-in-water/6_CG-takeCURRENT/box_CG_W_eq.gro",
+    "production_mdp": "references/derived/mdp/martini_v3.0_prod_single-solute_gmx2026.3.mdp"
+  },
+  "generation_reference_paths": [
+    "references/original/papers",
+    "references/original/bible",
+    "references/original/small-molecules",
+    "references/original/polymers-m3",
+    "references/original/tutorial",
+    "references/original/gromacs",
+    "references/derived"
+  ],
+  "python_command": [
+    "python3"
+  ],
+  "gromacs_command": [
+    "gmx"
+  ],
+  "opls_ff_gen_command": [
+    "opls-ff-gen"
+  ],
+  "bonded": {
+    "method": "d5_opls_obc2_numpy",
+    "n_conformers": 300,
+    "n_samples_per_minimum": 200,
+    "hess_e_window_kcal_mol": 8.0
+  },
+  "gromacs_documentation_version": "2026.0",
+  "default_temperature_K": 298.15,
+  "default_pressure_bar": 1.0,
+  "random_seed": 20261031,
+  "max_conformers": 10,
+  "max_mapping_candidates": 3,
+  "max_repair_cycles": 3,
+  "smoke_test_duration_ps": 100,
+  "target_test_timestep_ps": 0.02,
+  "allow_aa_md_or_qm": false,
+  "allow_automatic_cg_generators": false,
+  "benchmark_mode": "off",
+  "benchmark_root": null
+}

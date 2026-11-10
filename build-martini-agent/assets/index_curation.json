@@ -1,0 +1,267 @@
+{
+ "schema_version": 1,
+ "about": "Curation decisions for references/index, applied by scripts/build_index.py. Each was reviewed by a person, or is an agent assignment that the builder re-checks against the topology.",
+ "recorded": "prepare mode 2026-10-31 (log prepare/20261031/PREPARE_REPORT.md)",
+ "motif_smarts": {
+  "aromatic_ring": "a1aaaaa1",
+  "heteroaromatic": "[a;!#6]",
+  "five_membered_aromatic": "a1aaaa1",
+  "fused_rings": "[R2]",
+  "aliphatic_ring": "[C;R;!a]",
+  "alkyl_chain_C3+": "[CH2X4][CH2X4][CH3X4,CH2X4]",
+  "methyl_on_aromatic": "[CH3]c",
+  "ether": "[OX2]([#6;!$(C=O)])[#6;!$(C=O)]",
+  "alcohol": "[OX2H][CX4]",
+  "phenol": "[OX2H]c",
+  "ketone_aldehyde": "[CX3](=O)[#6,#1;!$([#6]=O)]",
+  "ester": "C(=O)O[#6]",
+  "carboxylic_acid": "C(=O)[OH]",
+  "amide": "C(=O)N",
+  "carbamate": "OC(=O)N",
+  "amine": "[NX3;!$(N-C=O);!$(N-a);!a]",
+  "aniline": "[NX3;!$(N-C=O)]c",
+  "nitro": "[N+](=O)[O-]",
+  "nitrile": "C#N",
+  "halogen": "[F,Cl,Br,I]",
+  "thioether_thiophene": "[#16X2]",
+  "thiol": "[SH]",
+  "alkene": "C=C",
+  "quinone_carbonyl": "c=O"
+ },
+ "small_molecules": {
+  "default_doi": "10.1002/adts.202100391",
+  "proposed_smiles": {
+   "INDO": "c1ccc2[nH]ccc2c1"
+  },
+  "proposed_smiles_note": "library SMILES lacks [nH]; adopted by user decision 2026-10-31"
+ },
+ "forcefield": {
+  "doi": "10.1038/s41592-021-01098-3",
+  "user_names": {
+   "HXD14": "2,4-HEXADIENE (user decision; ITP comment reads '1-4-HEXADIENE', Bible SMILES is hexa-2,4-diene)",
+   "ADEN": "ADENINE (ITP comment '; Adenine Martini itp'; indexed by user decision 2026-11-08)",
+   "CYTO": "CYTOSINE (ITP comment '; Cytosine Martini itp'; indexed by user decision 2026-11-08)",
+   "GUAN": "GUANINE (ITP comment '; Guanine Martini itp'; indexed by user decision 2026-11-08)",
+   "THYM": "THYMINE (ITP comment '; Thymine Martini itp'; indexed by user decision 2026-11-08)",
+   "URAC": "URACIL (ITP comment '; Uracil Martini itp'; indexed by user decision 2026-11-08)"
+  },
+  "agent_smiles_note": "Agent-assigned from the full chemical name in the ITP comment (user-approved task, 2026-10-31). Each is re-checked: RDKit parse, and formal charge equal to the ITP [atoms] charge sum.",
+  "agent_smiles": {
+   "ACN": "CC#N",
+   "OCD912": "CCCCCCCCC=CCC=CCCCCC",
+   "CLF": "ClC(Cl)Cl",
+   "MEO": "CO",
+   "ETO": "CCO",
+   "PRO": "CCCO",
+   "PPN": "CC(C)=O",
+   "BTN": "CCC(C)=O",
+   "HPA": "CCCCCCC=O",
+   "MEA": "COC(C)=O",
+   "DEI": "CCNCC",
+   "TMI": "CN(C)C",
+   "PPI": "CCCN",
+   "ACAC": "CC(=O)O",
+   "PRAC": "CCC(=O)O",
+   "NA": "[Na+]",
+   "CL": "[Cl-]",
+   "BR": "[Br-]",
+   "IOD": "[I-]",
+   "TMA": "C[N+](C)(C)C",
+   "ACE": "CC(=O)[O-]",
+   "CA": "[Ca+2]",
+   "BF4": "F[B-](F)(F)F",
+   "PF6": "F[P-](F)(F)(F)(F)F",
+   "SCN": "[S-]C#N",
+   "CLO4": "[O-]Cl(=O)(=O)=O",
+   "NO3": "[O-][N+](=O)[O-]",
+   "MIM": "Cn1cc[n+](C)c1",
+   "EIM": "CCn1cc[n+](C)c1",
+   "BIM": "CCCCn1cc[n+](C)c1",
+   "OIM": "CCCCCCCCn1cc[n+](C)c1",
+   "DIM": "CCCCCCCCCCCCn1cc[n+](C)c1",
+   "PHO": "CCCCCCCCCCCCCC[P+](CCCCCC)(CCCCCC)CCCCCC",
+   "ADEN": "Nc1ncnc2[nH]cnc12",
+   "CYTO": "Nc1cc[nH]c(=O)n1",
+   "GUAN": "Nc1nc2[nH]cnc2c(=O)[nH]1",
+   "THYM": "Cc1c[nH]c(=O)[nH]c1=O",
+   "URAC": "O=c1cc[nH]c(=O)[nH]1"
+  },
+  "unspecified_double_bond_stereo": [
+   "OCD912"
+  ],
+  "agent_smiles_notes": {
+   "ADEN": "tautomer chosen by the agent (9H, the N9 that carries the sugar in nucleic acids); the ITP does not encode it",
+   "GUAN": "tautomer chosen by the agent (9H, the N9 that carries the sugar in nucleic acids); the ITP does not encode it",
+   "CYTO": "tautomer chosen by the agent (1H, the N1 that carries the sugar in nucleic acids); the ITP does not encode it",
+   "THYM": "tautomer chosen by the agent (1H, the N1 that carries the sugar in nucleic acids); the ITP does not encode it",
+   "URAC": "tautomer chosen by the agent (1H, the N1 that carries the sugar in nucleic acids); the ITP does not encode it"
+  }
+ },
+ "extra_entries_note": "Hand-reviewed entries outside the small-molecule library and the force-field ITPs. source_path is relative to the reference root; the builder adds sha256 and skips an entry whose file is absent.",
+ "extra_entries": [
+  {
+   "reference_id": "POLYPLY-M3:PEO",
+   "name": "poly(ethylene oxide) / PEG repeat unit EO + hydroxyl terminus OHter (Martini 3)",
+   "canonical_isomeric_smiles": null,
+   "library_smiles": null,
+   "smiles_verification": "polymer building block: one EO bead per ethylene-oxide repeat unit, OHter = hydroxyl end bead (TP1); atom-level mapping not stated in the file; no single-molecule SMILES",
+   "formal_charge": 0,
+   "source_path": "original/polymers-m3/polyply_1.0/PEO.martini3.ff",
+   "doi_url": [
+    "10.1038/s41467-021-27627-4"
+   ],
+   "doi_note": "data file carries no citation; polyply paper (Supplementary Table 1) lists PEO in its Martini3 library. Primary parametrization reference not identified.",
+   "source_locator": "PEO.martini3.ff: moleculetypes EO (SN3r, 45 amu), OHter (TP1, 36 amu); links: EC-EC bond 0.36/7000, EC-EC-EC angle 2 123/80, CBT dihedral funct 11, OH-EC bond 0.29/7000, OH-EC-EC angle 2 127/110",
+   "mapping_path": null,
+   "mapping_figure": null,
+   "forcefield_version": "Martini 3 (polyply_1.0 data library, commit in original/polymers-m3/polyply_1.0.commit.txt)",
+   "motifs": [
+    "ether",
+    "alcohol"
+   ],
+   "notes": "polyply .ff format (links between residues), not a GROMACS .itp; translate terms manually. Polyply itself is NOT to be run (automatic generator). Dihedral funct 11 = combined bending-torsion (GROMACS manual).",
+   "role": "generation"
+  }
+ ],
+ "sections": {
+  "schema_version": 1,
+  "note": "pdf_page = 1-based page in the PDF file; printed_page as printed on the page",
+  "entries": [
+   {
+    "source": "references/original/papers/Souza2021/supporting-information.pdf",
+    "derived": "references/derived/souza2021-si.txt",
+    "items": [
+     {
+      "id": "A1",
+      "title": "Blocks, chemical types and sizes",
+      "pdf_page": 4,
+      "printed_page": 4
+     },
+     {
+      "id": "A2",
+      "title": "Interaction matrix",
+      "pdf_page": 6,
+      "printed_page": 6
+     },
+     {
+      "id": "A3",
+      "title": "Interaction levels",
+      "pdf_page": 7,
+      "printed_page": 7
+     },
+     {
+      "id": "A4",
+      "title": "Labels",
+      "pdf_page": 10,
+      "printed_page": 10
+     },
+     {
+      "id": "C1",
+      "title": "Mapping and choice of bead sizes (incl. Supplementary Figure 6 mapping workflow)",
+      "pdf_page": 36,
+      "printed_page": 36
+     },
+     {
+      "id": "C2",
+      "title": "Chemical groups and bead assignment (Supplementary Tables 24, 25)",
+      "pdf_page": 38,
+      "printed_page": 38
+     },
+     {
+      "id": "Table24",
+      "title": "Default bead assignments for neutral fragments",
+      "pdf_page": 39,
+      "printed_page": 39
+     },
+     {
+      "id": "Table25",
+      "title": "Default bead assignments and charges for ions",
+      "pdf_page": 41,
+      "printed_page": 41
+     },
+     {
+      "id": "C3",
+      "title": "Bond distances based on molecular volume and shape (COG rule, SASA radii)",
+      "pdf_page": 41,
+      "printed_page": 41
+     },
+     {
+      "id": "C4",
+      "title": "Numerical stability of simulations (virtual sites, 180 deg angles, masses)",
+      "pdf_page": 44,
+      "printed_page": 44
+     }
+    ]
+   },
+   {
+    "source": "references/original/tutorial/tutorial.pdf",
+    "derived": "references/derived/tutorial-page.txt",
+    "items": [
+     {
+      "id": "5.1",
+      "title": "On the choice of bonded terms for the CG model (Figure 3: all-constraint vs hinge + virtual site)",
+      "pdf_page": 9,
+      "printed_page": "9/17 (browser footer)"
+     },
+     {
+      "id": "5.2",
+      "title": "Index files and generation of target distributions",
+      "pdf_page": "9-10",
+      "printed_page": null
+     }
+    ]
+   },
+   {
+    "source": "references/original/papers/alessandri2022/supporting-information.pdf",
+    "derived": "references/derived/alessandri2022-si.txt",
+    "items": [
+     {
+      "id": "FigS1",
+      "title": "Benzene and cyclohexane bonded parameters (COG bond lengths)"
+     },
+     {
+      "id": "FigS2",
+      "title": "Alkane bonded parameters extracted from AA simulations"
+     },
+     {
+      "id": "3/FigS3",
+      "title": "Advanced model design strategies; naphthalene constraint vs hinge models"
+     },
+     {
+      "id": "TableS1",
+      "title": "SASA values for rings"
+     },
+     {
+      "id": "TableS2",
+      "title": "Database: list of molecules (uID, name)"
+     }
+    ]
+   },
+   {
+    "source": "references/original/gromacs/manual-2026.3.pdf",
+    "derived": "references/derived/gromacs-manual-2026.3.txt",
+    "items": [
+     {
+      "id": "Table 5.14",
+      "title": "Details of [ moleculetype ] directives: function numbers, parameter order, units",
+      "printed_page": "478-482"
+     },
+     {
+      "id": "ReB",
+      "title": "Restricted bending potential (angle function 10)",
+      "printed_page": 423
+     }
+    ]
+   },
+   {
+    "source": "references/original/small-molecules/models/mapping-cgbuilder/oplsaa-LigParGen",
+    "items": [
+     {
+      "id": "mapping figures",
+      "title": "Per-molecule CG-builder mapping PNG + .ndx (atom indices refer to AA/oplsaa-LigParGen/<uID>_LigParGen.itp)"
+     }
+    ]
+   }
+  ]
+ }
+}

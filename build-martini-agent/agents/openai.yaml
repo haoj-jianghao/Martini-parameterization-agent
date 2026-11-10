@@ -1,0 +1,14 @@
+interface:
+  display_name: Martini Agent Experiment
+  short_description: Build Martini models from SMILES using references
+  default_prompt: Use $build-martini-agent to prepare my reference environment or
+    generate a GROMACS Martini model from my SMILES without automatic CG generators.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

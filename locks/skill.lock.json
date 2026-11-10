@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "algorithm": "sha256",
+  "files": {
+    "SKILL.md": "c25227bb63ccb1c99ef9d4fe725c17bdfc1627d846b9165981b844954c2b1daa",
+    "agents/openai.yaml": "cb8a8e4959c1a9e8dba13cd37936b8c55f3932fe12b2b5e83b50cf0e5eb1f2fb",
+    "assets/environment.example.json": "27f1c794fc71590f93cf7435ce0ff9e076b52b4620ae4efa75709f0815d353a8",
+    "assets/icon.svg": "8936b24f674a1250d999e2c2b5901374fb4240426f32bd1ae340c352a90d617d",
+    "assets/index_curation.json": "c0fa175c01c52d894a515d74b06a3827d342e968a51d0f905203896eb61c110e",
+    "references/bonded.md": "aaadf786ffc1a1bd735ef106aede2a855572c36d483142e9e926eebe0ff7db7d",
+    "references/comparison.md": "13e43cb04fa3cc4eb71bbfa566a1baf6d457162eb4b0438c3fcd8542b8bdb23e",
+    "references/data-contract.md": "721bab6794078c09386dba70447165474b509c9955b851c36eb24d968e9904db",
+    "references/environment.md": "c7edda38714a98cbce65f108412059815ce65ac4547525ac116501a5f6a01410",
+    "references/validation.md": "d6beb491717a8e284bb100814d2bb3ee804fa02ceb0a4ca42b4abb311d9aadfe",
+    "scripts/build_index.py": "4ea948d36111664c140e78276d6ef17cd9ccbe2b3605a07887b921c7d24bb370",
+    "scripts/cgbuild.py": "3b9fcfc713aef11fce3c36982ee6b215be292832fb16a807f4ad3070c135230f",
+    "scripts/d5bonded/__init__.py": "10e2546cc8c9e149485975df1ca449e24ce105ee0920b7a7cd22d8e235cc227c",
+    "scripts/d5bonded/energy.py": "26032873e890381149aed44b608e7e20998ff4dd00c602f40ca0a84cbb050c35",
+    "scripts/d5bonded/ensemble.py": "e37707de700a63078a09c2cadde7f5757a7b241c6531e0a66a230c79fdfc83f4",
+    "scripts/d5bonded/fit.py": "d64fd4473f48d2b4ea46fe83ae9da8e7d844454bc47a44d2f0d5c15916b0c9c7",
+    "scripts/d5bonded/geometry.py": "b0819dc6316bf92ba74cc8cc3e3212b0d449265a32aeed5f5ed8d85432584146",
+    "scripts/d5bonded/mapping.py": "becb73a08949795d2286ee7ac5272a4e59a66e7053f2b754fc0fa302af499efc",
+    "scripts/d5bonded/opls.py": "97aa182da6c6f9cbf5efd1c58640d54c10f542ab7de69d4efcc0c519f0da6ff3",
+    "scripts/d5bonded/terms.py": "7f0f437d4e73d76c5cff2b98e54bf00e88557d604bfe9514d68ce2689cdb4009",
+    "scripts/derive_bonded.py": "d7bb79cbde9508b4098d748ceff7193ebdbb7c653b4b19a2aac75d735153d787",
+    "scripts/fetch_reference.py": "dde5daa5ae0c6a1afa7494b6691e73a93f655372c72f3018b57330ec4ada9060",
+    "scripts/multi_seed_check.py": "69183885530072f5ca9ef0e942c97cea2ee7de0eb10cb61ba108a097269a7092",
+    "scripts/reference_lock.py": "0473d0c73786a579efb4539a424c293b15504b45aec2e3b2b0668a992340493f",
+    "scripts/reference_manifest.py": "f0f41e702d2eee313f8f1f812d723858ef8944d17c3633bfdf019ade30c145b7",
+    "scripts/sasa_check.py": "b0422198f15d20a6d34f7a8a40fd1bf19ae6557783c89b0a68354ae84cd6d30b"
+  }
+}

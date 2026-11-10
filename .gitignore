@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# Never commit site data or the references bundle
+environment.json
+references/
+runs/
+config/
+*.tar.gz
