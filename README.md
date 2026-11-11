@@ -6,7 +6,6 @@ The agent makes the chemical decisions: mapping, bead types, charges. Determinis
 
 Modes: **prepare** (a pinned, locked reference library, once per site), **generate** (one model per SMILES), **compare** (a frozen result against a published model).
 
-> Private pre-release for test installs. Licences of the bundled references and of the skill are not settled yet.
 
 ## What is in this release
 
