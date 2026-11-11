@@ -398,6 +398,37 @@ def bead_weights(design, mol):
     return out, heavy
 
 
+
+
+def bead_size_issue(bead, n, atoms):
+    """Why a bead's size letter does not fit its heavy-atom content, or None.
+    Rule: 4-1, 3-1 and 2-1 mappings default to R, S and T beads; fully branched fragments take a smaller bead
+    (neopentane, 5 atoms, is an R bead); under- and over-mapping are avoided (Souza 2021 SI section C1, p. 36).
+    n: heavy atoms in the bead, shared atoms counted by allocation weight; atoms: its RDKit heavy atoms.
+    Other allowed exceptions, all seen in the published small-molecule library (90 mapped models, 2026-11-10):
+    a ring heteroatom of a five-membered aromatic ring alone in a T bead (THIO, FURA, IMID, PYRR); a compact
+    four-atom group in an S bead (CF3 in BZTF, NO2 in NBAPH, branched alkyl in MCYPE); two ring atoms in an S bead
+    (MCYPE); iodine or bromine with two carbons in an R bead (IOBZ, IOPHE)."""
+    t = bead['type']
+    size = t[0] if t[0] in 'ST' else 'R'
+    ring5_het = (len(atoms) == 1 and atoms[0].GetAtomicNum() != 6 and atoms[0].GetIsAromatic()
+                 and atoms[0].IsInRingSize(5))
+    if n < 1.5 and not (size == 'T' and ring5_het):
+        return f'one heavy atom in a {size} bead: a bead is a fragment of 2-4 heavy atoms, not a lone atom or group label'
+    if size == 'T' and n > 2.5:
+        return f'{n:g} heavy atoms in a T (2-atom) bead'
+    if size == 'S' and n < 2.5 and not all(at.IsInRing() for at in atoms):
+        return f'{n:g} heavy atoms in an S (3-atom) bead'
+    if size == 'S' and n > 4.5:
+        return f'{n:g} heavy atoms in an S (3-atom) bead'
+    if size == 'R' and n < 3.5 and not any(at.GetAtomicNum() in (35, 53) for at in atoms):
+        return f'{n:g} heavy atoms in an R (4-atom) bead'
+    branched = any(sum(nb.GetAtomicNum() > 1 for nb in at.GetNeighbors()) == 4 for at in atoms)
+    if size == 'R' and n > (5.5 if branched else 4.5):
+        return f'{n:g} heavy atoms in an R (4-atom) bead'
+    return None
+
+
 def cog(weights, xyz):
     idx = np.array(list(weights.keys()))
     w = np.array(list(weights.values()))
@@ -462,6 +493,19 @@ def cmd_build(a):
     netq = sum(b.get('charge_e', 0.0) for b in des['beads'])
     chk('net_charge_matches_formal_charge', abs(netq - req['formal_charge']) < 1e-9,
         {'model_charge_e': netq, 'formal_charge_e': req['formal_charge']})
+    # bead size vs heavy atoms: a flag, not a failure; a bead's cited `size_exception` clears it
+    size_rec, flagged = {}, []
+    for bi, b in enumerate(des['beads']):
+        n = round(sum(w.get(bi, 0.0) for w in heavy.values()), 3)
+        atoms = [sel.GetAtomWithIdx(h - 1) for h, w in heavy.items() if bi in w]
+        issue = bead_size_issue(b, n, atoms)
+        size_rec[b['name']] = {'type': b['type'], 'heavy_atoms': n, 'issue': issue,
+                               'size_exception': b.get('size_exception')}
+        if issue and not b.get('size_exception'):
+            flagged.append(b['name'])
+    static.append({'check': 'bead_size_matches_heavy_atoms', 'result': 'flag' if flagged else 'pass',
+                   'detail': {'flagged': flagged, 'beads': size_rec,
+                              'rule': 'T 2, S 3, R 4 heavy atoms (Souza 2021 SI section C1, p. 36); exceptions in cgbuild.bead_size_issue'}})
     # --- geometry over conformers
     all_pos, all_mapped = [], []
     for m in mols:
@@ -674,7 +718,8 @@ def cmd_build(a):
     wjson(md / 'test/static_checks.json', {'checks': static, 'virtual_site_discrepancy': vs_disc})
     nfail = sum(1 for s in static if s['result'] == 'fail')
     print('build ok', req['molecule_id'], 'beads', nb, 'static fails', nfail,
-          [s['check'] for s in static if s['result'] == 'fail'])
+          [s['check'] for s in static if s['result'] == 'fail'],
+          'flags', [s['check'] for s in static if s['result'] == 'flag'])
 
 
 def draw_mapping(md, des, req):
@@ -1287,16 +1332,17 @@ def cmd_summary(a):
                      'em_converged': sm.get('em_converged_to_emtol', {}).get('result'),
                      'tested_dynamics': val['tested_dynamics'],
                      'n_unverified_statements': len(man['unverified_statements']),
-                     'failed_checks': [c['check'] for c in val['checks'] if c['result'] == 'fail']})
+                     'failed_checks': [c['check'] for c in val['checks'] if c['result'] == 'fail'],
+                     'flagged_checks': [c['check'] for c in val['checks'] if c['result'] == 'flag']})
     wjson(bd / 'summary.json', {'schema_version': 1, 'batch': bd.name, 'created_utc': now(), 'molecules': rows,
                                 'status_counts': {s: sum(1 for r in rows if r['status'] == s) for s in sorted({r['status'] for r in rows})}})
     R = [f'# Batch {bd.name}', '', 'Built only from each molecule\'s records (validation.json, mapping.json, parameters.json, analogue_search.json, manifest.json).', '',
-         '| ID | Name | Status | Beads | Types | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Exposed |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|']
+         '| ID | Name | Status | Beads | Types | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Flags | Exposed |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for r in rows:
         R.append(f"| {r['molecule_id']} | {r['name']} | {r['status']} | {r['n_beads']} | {' '.join(r['bead_types'])} | {r['net_charge_e']} | "
                  f"{', '.join(r['provisional_types']) or '-'} | {', '.join(r['unresolved_terms']) or '-'} | "
-                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {r['reference_exposed']} |")
+                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {', '.join(r['flagged_checks']) or '-'} | {r['reference_exposed']} |")
     R.append('')
     R.append('Per-molecule details: `<ID>/report.md`.')
     (bd / 'report.md').write_text('\n'.join(R) + '\n')

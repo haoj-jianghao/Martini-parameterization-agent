@@ -2,7 +2,7 @@
 
 ## Static
 
-Check input graph; mapping coverage/connectivity and shared weights; intended charge; valid bead names; finite geometry; units; atom order; indices; functional-form arguments; duplicates; missing terms; mass redistribution; virtual-site geometry; redundant constraints; ring planarity; exclusions; motif junctions. `cgbuild.py build` records these in `test/static_checks.json`; the OPLS topology's bond graph must equal the SMILES graph, or stage 4 stops. Inspect the annotated mapping. A custom linter does not replace GROMACS preprocessing.
+Check input graph; mapping coverage/connectivity and shared weights; intended charge; valid bead names; finite geometry; units; atom order; indices; functional-form arguments; duplicates; missing terms; mass redistribution; virtual-site geometry; redundant constraints; ring planarity; exclusions; motif junctions. `cgbuild.py build` records these in `test/static_checks.json`; bead size against heavy atoms (Souza SI C1) is recorded there as `flag`, which does not block but must be fixed or justified with `size_exception`; the OPLS topology's bond graph must equal the SMILES graph, or stage 4 stops. Inspect the annotated mapping. A custom linter does not replace GROMACS preprocessing.
 
 ## Execution
 
