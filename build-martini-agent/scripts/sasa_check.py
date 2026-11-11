@@ -6,8 +6,8 @@ B: the same frames mapped to beads, with R/S/T radii 0.264/0.230/0.191 nm (Souza
 Bands on B against A: pass within 5%, review to 10%, flag above 10% (tutorial section 7).
 Runs under python_command. No dynamics.
 
-Frames come from bonded/ensemble_atoms.npz, or the ensemble is regenerated into OUT with opls-ff-gen and the NumPy
-energy model (only for records made with them). Regenerated frames must match bonded/ensemble_beads.npz (see frames_vs_saved), or the
+Frames come from bonded/ensemble_atoms.npz, or the ensemble is regenerated into OUT from the same AA topology
+(the supplied one, or opls-ff-gen) and the NumPy energy model (only for records made with them). Regenerated frames must match bonded/ensemble_beads.npz (see frames_vs_saved), or the
 molecule fails, because that would mean comparing a different ensemble from the one the model came from.
 
 usage: sasa_check.py OUT MOLDIR [MOLDIR ...] [--frames 200] [--jobs 4]
@@ -26,7 +26,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from derive_bonded import mapping_matrix  # noqa: E402
 from d5bonded.ensemble import d5_ensemble  # noqa: E402
-from d5bonded.opls import build_topology  # noqa: E402
+from derive_bonded import get_topology  # noqa: E402
 from rdkit import Chem  # noqa: E402
 
 ENV_PATH = Path(os.environ.get("MARTINI_ENV", Path(__file__).resolve().parents[2] / "environment.json")).resolve()
@@ -131,10 +131,11 @@ def self_test(workdir):
 def regenerate_atoms(md, out, req, bonded):
     """The 4000 weighted frames behind bonded/ensemble_beads.npz, by the same seed and settings."""
     em_rec = bonded["energy_model"]
-    if em_rec["engine"] != "opls-ff-gen" or "openmm" in json.dumps(bonded.get("software", {})).lower():
+    if ((em_rec.get("topology_source", "engine") == "engine" and em_rec["engine"] != "opls-ff-gen")
+            or "openmm" in json.dumps(bonded.get("software", {})).lower()):
         raise RuntimeError("bonded.json predates the opls-ff-gen + NumPy energy model and has no ensemble_atoms.npz; "
                            "re-run stage 4 (cgbuild.py bonded) before the SASA check")
-    t = build_topology(req["original_smiles"], out / "topology", ENV["opls_ff_gen_command"])
+    t = get_topology(req["original_smiles"], req, md if req.get("aa_topology") else out / "topology", ENV)
     from derive_bonded import energy_model
     em = energy_model(t)
     b = ENV["bonded"]

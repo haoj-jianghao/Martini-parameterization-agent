@@ -13,6 +13,7 @@ The environment file is $MARTINI_ENV, or environment.json next to the skill fold
 
 Subcommands (run with the environment's python_command):
   input    <moldir> --smiles S --id ID --name NAME [--class C] [--stereo-note N]
+           [--aa-topology TOP_OR_ITP [--aa-engine E] [--aa-charge-model M]]
   search   <moldir>
   bonded   <moldir>
   build    <moldir>
@@ -152,6 +153,23 @@ def measure(section, funct, pos):
 
 
 # ---------------------------------------------------------------- input
+def supplied_topology(md, a):
+    """Flatten the user's OPLS-AA topology into input/aa_topology.top, check it against the SMILES, record it.
+    Any OPLS-AA engine and charge method is accepted; the file is used as given in stage 4."""
+    from d5bonded.opls import TopologyError, check_supplied_topology, flatten_topology
+    src = Path(a.aa_topology).expanduser().resolve()
+    dest = md / 'input/aa_topology.top'
+    try:
+        notes = flatten_topology(src, dest)
+        g, _, more = check_supplied_topology(a.smiles, dest)
+    except (TopologyError, OSError, KeyError, ValueError, IndexError) as e:
+        wjson(md / 'input/aa_topology_failure.json', {'source_path': str(src), 'error': f'{type(e).__name__}: {e}'})
+        raise SystemExit(f'--aa-topology rejected: {type(e).__name__}: {e}')
+    return {'file': 'input/aa_topology.top', 'sha256': sha256(dest), 'source_path': str(src), 'source_sha256': sha256(src),
+            'engine': a.aa_engine or None, 'charge_model': a.aa_charge_model or None,
+            'n_atoms': g.n, 'net_charge_e': round(float(g.charge.sum()), 4), 'notes': notes + more}
+
+
 def cmd_input(a):
     md = Path(a.moldir)
     (md / 'input').mkdir(parents=True, exist_ok=True)
@@ -166,6 +184,7 @@ def cmd_input(a):
         if b.GetBondType() == Chem.BondType.DOUBLE and b.GetStereo() != Chem.BondStereo.STEREONONE:
             dbonds.append({'atoms_1based': [b.GetBeginAtomIdx() + 1, b.GetEndAtomIdx() + 1], 'stereo': str(b.GetStereo())})
     frags = Chem.GetMolFrags(mol0)
+    aa_top = supplied_topology(md, a) if a.aa_topology else None
     molH = Chem.AddHs(mol0)
     params = AllChem.ETKDGv3()
     params.randomSeed = SEED
@@ -220,6 +239,7 @@ def cmd_input(a):
            'stereocentres': [[i + 1, c] for i, c in centres],
            'unspecified_stereocentres': [i + 1 for i, c in centres if c == '?'],
            'double_bond_stereo': dbonds, 'test_set_stereo_note': a.stereo_note,
+           'aa_topology': aa_top,
            'overrides': {}, 'environment_json': str(ENV_PATH), 'environment_sha256': sha256(ENV_PATH),
            'config_snapshot': ENV}
     wjson(md / 'input/request.json', req)
@@ -1111,12 +1131,14 @@ def cmd_finalize(a):
         'model_identifier': des.get('authored_by', 'unknown'),
         'seeds': {'conformer_embedding': SEED, 'gen_seed_eq1': SEED},
         'hashes': {'request_json': sha256(md / 'input/request.json'), 'environment_json': sha256(ENV_PATH),
+                   **({'aa_topology': req['aa_topology']['sha256']} if req.get('aa_topology') else {}),
                    'design_json': sha256(md / 'decisions/design.json'), 'bonded_json': sha256(md / 'decisions/bonded.json'),
                    'cgbuild_py': sha256(SCRIPT_DIR / 'cgbuild.py'), 'derive_bonded_py': sha256(SCRIPT_DIR / 'derive_bonded.py')},
         'revisions': des.get('revisions', []),
         'runtime': {'commands_wall_s': round(sum(json.loads(l)['wall_s'] for l in open(md / 'logs/commands.jsonl')), 1)
                     if (md / 'logs/commands.jsonl').exists() else None},
-        'reproduce': [f"{ENV['python_command'][0]} scripts/cgbuild.py input . --smiles '{req['original_smiles']}' --id {req['molecule_id']} --name '{req['name']}'",
+        'reproduce': [f"{ENV['python_command'][0]} scripts/cgbuild.py input . --smiles '{req['original_smiles']}' --id {req['molecule_id']} --name '{req['name']}'"
+                      + (f" --aa-topology {req['aa_topology']['source_path']}" if req.get('aa_topology') else ''),
                       f"{ENV['python_command'][0]} scripts/cgbuild.py search .", f"{ENV['python_command'][0]} scripts/cgbuild.py bonded .",
                       f"{ENV['python_command'][0]} scripts/cgbuild.py build .",
                       f"{ENV['python_command'][0]} scripts/cgbuild.py test .", f"{ENV['python_command'][0]} scripts/cgbuild.py finalize .",
@@ -1291,6 +1313,9 @@ def main():
     p.add_argument('--name', required=True)
     p.add_argument('--class', dest='cls', default='')
     p.add_argument('--stereo-note', default='')
+    p.add_argument('--aa-topology', help='OPLS-AA GROMACS topology (.top, or .itp with [ atomtypes ]) of this molecule')
+    p.add_argument('--aa-engine', default='', help='what made the topology, e.g. "opls-ff-lite 0.1.0" (recorded only)')
+    p.add_argument('--aa-charge-model', default='', help='charge method of the topology, e.g. "1.14*CM1A-LBCC" (recorded only)')
     for c in ('search', 'bonded', 'build', 'test', 'finalize'):
         q = sp.add_parser(c)
         q.add_argument('moldir')

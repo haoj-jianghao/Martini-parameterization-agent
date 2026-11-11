@@ -9,13 +9,14 @@ Store verified entries in `references/index/models.jsonl`: `reference_id`, name,
 ## Runs
 
 Create `runs/<safe-name>-<timestamp>/` with:
-- `input/request.json`: original SMILES, overrides, config snapshot/hash.
+- `input/request.json`: original SMILES, overrides, config snapshot/hash, and `aa_topology` (null, or `file`, `sha256`, `source_path`, `source_sha256`, `engine`, `charge_model`, `n_atoms`, `net_charge_e`, `notes`).
+- `input/aa_topology.top`: the supplied OPLS-AA topology, flattened (`#include` expanded), when one was given.
 - `input/atomistic.sdf`, `input/atoms.json`: explicit-H indexed reference structure; atoms have stable one-based ID, RDKit index, element, charge, stereochemistry and neighbors.
 - `decisions/analogue_search.json`: the index queries run (substructure SMARTS or SMILES, motif tags, code path), every hit with `reference_id`, `source_path` and the matched atoms, and for each hit whether it was used, for which beads or terms, or why it was rejected. It also lists `exact_target_matches` (same constitution) and `tautomer_target_matches` (same RDKit canonical tautomer, stereo ignored); either sets `reference_exposed`.
 - `decisions/design.json`: the agent's record, holding beads, members, types, charges, virtual sites, candidates, analogue queries and annotations. It holds no bonded terms.
 - `decisions/bonded.json`: written by `cgbuild.py bonded`. Agent-free bonded record (see "Bonded record").
 - `decisions/mapping_candidates.json`, `decisions/mapping.json`, `decisions/parameters.json`: written by `cgbuild.py build`.
-- `bonded/`: the OPLS topology and its log (`bonded/opls-ff-gen/`), `ensemble_beads.npz` (resampled bead coordinates in nm) and `ensemble_atoms.npz` (the same frames as atoms).
+- `bonded/`: the engine's OPLS topology and its log (`bonded/opls-ff-gen/`, only without a supplied topology), `ensemble_beads.npz` (resampled bead coordinates in nm) and `ensemble_atoms.npz` (the same frames as atoms).
 - `model/molecule.itp`, `model/molecule.gro`, `model/mapping.svg` (or PNG).
 - `test/`: system TOP, MDPs, preprocessed topology, construction records, logs and trajectories.
 - `scripts/`: actual deterministic code used to construct outputs.

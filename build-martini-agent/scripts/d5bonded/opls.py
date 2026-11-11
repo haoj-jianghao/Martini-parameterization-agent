@@ -1,6 +1,10 @@
-"""OPLS-AA topology for stage 4 from an OPLS/2020 engine, reduced to one interface (no MD).
+"""OPLS-AA topology for stage 4, reduced to one interface (no MD).
 
-The engine is opls_ff_gen_command: opls-ff-lite (shipped with the release) or the full opls-ff-gen; with MMFF94
+Two sources. (1) A topology supplied by the user (`cgbuild.py input --aa-topology`): any OPLS-AA GROMACS topology,
+whatever engine or charge method made it, is used as given; it is flattened into input/aa_topology.top
+(load_supplied_topology). (2) Fallback when none is supplied: an OPLS/2020 engine run here (build_topology).
+
+The engine is opls_ff_gen_command: opls-ff-lite or the full opls-ff-gen; with MMFF94
 geometry both write identical topologies. Uncharged species get 1.14*CM1A-LBCC charges on the engine's default
 geometry (MMFF94 for opls-ff-lite, GFN2-xTB for opls-ff-gen). The full tool's vacuum xTB step moves protons in
 zwitterions and ammonium ions (NH3+ -> COO-), which it then rejects; charged species therefore always use an MMFF94
@@ -10,6 +14,7 @@ is an error rather than a silent mislabelling. Equivalent atoms may swap; they c
 chirality comes from the conformers, not from the force field.
 The energy model built on this topology is d5bonded/energy.py.
 """
+import hashlib
 import re
 import subprocess
 from dataclasses import dataclass
@@ -18,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from rdkit import Chem
 
-from .energy import TopologyError
+from .energy import GmxTopology, TopologyError, _read_lines
 
 ENGINE = "opls-ff-gen"
 MAX_ABS_CHARGE = 3.4   # e; P(V) charges near +3.5 from opls-ff-gen blew up in AA simulation
@@ -27,6 +32,8 @@ MAX_ABS_CHARGE = 3.4   # e; P(V) charges near +3.5 from opls-ff-gen blew up in A
 # H-O-P=O / H-N-P=O 1-4 collapse (UDHX, PCRE, ATPH, ADPH); the CHARMM sigma 0.04 nm does not (H stops at 0.8 A).
 # Cost against 50 AA references: dihedral W1 sum +0.9%, angle +0.4% (runs/polar_h_benchmark-20261107).
 POLAR_H_LJ = (0.1, 0.192)
+OPLS_DEFAULTS = "1 3 yes 0.5 0.5"        # nbfunc comb-rule gen-pairs fudgeLJ fudgeQQ
+NET_CHARGE_TOL = 0.02                     # e; sum of topology charges against the SMILES formal charge
 MASS_TO_Z = {1: 1, 12: 6, 14: 7, 16: 8, 19: 9, 28: 14, 31: 15, 32: 16, 35: 17, 80: 35, 127: 53}
 
 
@@ -39,6 +46,8 @@ class OplsTopology:
     perm: np.ndarray            # perm[i] = RDKit index of topology atom i
     charges: list
     log: Path = None
+    source: str = "engine"      # "engine" (run here) or "supplied" (cgbuild.py input --aa-topology)
+    notes: list = None
 
 
 def parse_itp(itp):
@@ -120,3 +129,55 @@ def build_topology(smiles, workdir, command):
     if max(abs(x) for x in q) > MAX_ABS_CHARGE:
         raise TopologyError(f"atomic charge {max(abs(x) for x in q):.2f} e exceeds {MAX_ABS_CHARGE} e")
     return OplsTopology(ENGINE, cm, top, itp, atom_permutation(mol_h, z, bonds), q, log)
+
+
+def flatten_topology(src, dest):
+    """Write src (a .top or a self-contained .itp, #include expanded) as one file dest; returns notes.
+    [ defaults ] is added with the OPLS-AA values if src has none (an engine's bare .itp); [ system ] and
+    [ molecules ] are added if missing, so dest is a complete one-molecule topology."""
+    src, dest = Path(src), Path(dest)
+    lines = [x for x in _read_lines(src) if x]
+    secs = [m.group(1).lower() for s in lines if (m := re.match(r"^\[\s*(\w+)\s*\]$", s))]
+    notes, head, tail = [], [f"; flattened by d5bonded.opls.flatten_topology from {src.name}"], []
+    if "defaults" not in secs:
+        head += ["[ defaults ]", OPLS_DEFAULTS]
+        notes.append(f"no [ defaults ] in the supplied file; OPLS-AA defaults added ({OPLS_DEFAULTS})")
+    if "molecules" not in secs:
+        name = next((lines[i + 1].split()[0] for i, s in enumerate(lines)
+                     if re.match(r"^\[\s*moleculetype\s*\]$", s, re.I)), "MOL")
+        tail += ["[ system ]", name, "[ molecules ]", f"{name} 1"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("\n".join(head + lines + tail) + "\n")
+    return notes
+
+
+def check_supplied_topology(smiles, top):
+    """GmxTopology of top plus notes; raises TopologyError unless top is the SMILES molecule with sane charges."""
+    g = GmxTopology(top)
+    mol = Chem.MolFromSmiles(smiles)
+    mol_h = Chem.AddHs(mol)
+    bonds = sorted({tuple(sorted(b[:2])) for b in g.bonds})
+    perm = atom_permutation(mol_h, list(g.z), bonds)
+    q = g.charge
+    if np.abs(q).max() > MAX_ABS_CHARGE:
+        raise TopologyError(f"atomic charge {np.abs(q).max():.2f} e exceeds {MAX_ABS_CHARGE} e")
+    fc = Chem.GetFormalCharge(mol)
+    if abs(q.sum() - fc) > NET_CHARGE_TOL:
+        raise TopologyError(f"topology net charge {q.sum():.3f} e, SMILES formal charge {fc} e")
+    notes = []
+    d = g.defaults
+    if (d["fudge_lj"], d["fudge_qq"]) != (0.5, 0.5):
+        notes.append(f"fudgeLJ/fudgeQQ {d['fudge_lj']}/{d['fudge_qq']}, not the OPLS-AA 0.5/0.5")
+    return g, perm, notes
+
+
+def load_supplied_topology(smiles, rec, moldir):
+    """OplsTopology from the request's aa_topology record (written by cgbuild.py input)."""
+    top = Path(moldir) / rec["file"]
+    if not top.exists():
+        raise TopologyError(f"supplied topology {rec['file']} missing")
+    if hashlib.sha256(top.read_bytes()).hexdigest() != rec["sha256"]:
+        raise TopologyError(f"supplied topology {rec['file']} changed since cgbuild.py input")
+    g, perm, notes = check_supplied_topology(smiles, top)
+    return OplsTopology(rec.get("engine") or "supplied", rec.get("charge_model") or "not stated", top, top, perm,
+                        list(g.charge), None, "supplied", list(rec.get("notes", [])) + notes)

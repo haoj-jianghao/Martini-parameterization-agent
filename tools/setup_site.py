@@ -4,34 +4,35 @@
 Run from a clone of this repository, with the references bundle downloaded:
 
     python3 tools/setup_site.py --bundle /path/to/martini-agent-references-v7.tar.gz \
-        --si-dir /path/to/opls2020_si [--root ~/martini-agent-lab] [--gmx /path/to/gmx]
+        [--root ~/martini-agent-lab] [--gmx /path/to/gmx]
 
 Each step is skipped when its result is already in place, so the script can be re-run
 after you supply what it reports as missing. Steps:
 
   1. Python environment: create the conda env from environment.yml (or use --python),
      check RDKit, NumPy, SciPy, openpyxl.
-  2. OPLS engine: check vendor/SHA256SUMS, install the opls-ff-lite wheel, point it to
-     MOPAC, install the OPLS/2020 SI files (--si-dir), run `opls-ff-lite doctor`.
-  3. Skill: copy build-martini-agent/ into the skills directory and verify it against
+  2. Skill: copy build-martini-agent/ into the skills directory and verify it against
      locks/skill.lock.json (an older copy is kept as build-martini-agent.bak-<time>).
-  4. References: check the bundle against SHA256SUMS and unpack it under --root.
-  5. GROMACS: find it and read its version.
-  6. environment.json: create it from the template and fill python_command,
-     gromacs_command, opls_ff_gen_command, the GROMACS version and the force-field paths.
-  7. Site downloads: the GROMACS manual pages and PDF for that version and the polyply SI
+  3. References: check the bundle against SHA256SUMS and unpack it under --root.
+  4. GROMACS: find it and read its version.
+  5. environment.json: create it from the template and fill python_command,
+     gromacs_command, the GROMACS version and the force-field paths.
+  6. Site downloads: the GROMACS manual pages and PDF for that version and the polyply SI
      (skip with --no-fetch); derive their text with pdftotext.
-  8. Papers: check the publisher downloads you placed (Souza 2021, Alessandri 2022) and
+  7. Papers: check the publisher downloads you placed (Souza 2021, Alessandri 2022) and
      derive their text.
-  9. MDP check: grompp -maxwarn 0 and a 10 ps run of the adapted production MDP on the
+  8. MDP check: grompp -maxwarn 0 and a 10 ps run of the adapted production MDP on the
      bundled water box.
- 10. Index and manifest: build_index.py check, reference_manifest.py verify.
- 11. Lock (only with --lock, and only when nothing above failed, the papers are present
+  9. Index and manifest: build_index.py check, reference_manifest.py verify.
+ 10. Lock (only with --lock, and only when nothing above failed, the papers are present
      and references/index/readiness.json exists).
 
 It never edits bundled reference files and never runs downloaded code. The scientific
 review (paper identity, sources.json, readiness.json) is prepare mode's job:
 references/environment.md, section 0.
+
+No OPLS engine is installed: stage 4 uses an OPLS-AA topology that the user makes
+elsewhere for each molecule and passes to `cgbuild.py input --aa-topology`.
 """
 import argparse
 import datetime as dt
@@ -51,7 +52,6 @@ MANIFEST = REPO / "reference_manifest.json"
 SKILL_LOCK = REPO / "locks" / "skill.lock.json"
 TESTED_RDKIT = "2025.09.6"
 TESTED_GMX = "2026.3"
-SI_FILES = ("jp3c06602_si_002.txt", "jp3c06602_si_003.txt")
 FF_FILES = {"core_itp": "martini_v3.0.0.itp", "solvent_itp": "martini_v3.0.0_solvents_v1.itp",
             "ions_itp": "martini_v3.0.0_ions_v1.itp"}
 GMX_PAGES = {"topology-file-formats.html": "topologies/topology-file-formats.html",
@@ -139,54 +139,6 @@ def python_env(a):
 
 
 # 2 -------------------------------------------------------------------------------------
-def engine(a, py):
-    bad = check_sums(REPO / "vendor" / "SHA256SUMS", REPO / "vendor")
-    if bad:
-        note("engine", "fail", f"vendor/ checksum mismatch: {', '.join(bad)}")
-        return None
-    wheel = sorted((REPO / "vendor").glob("opls_ff_lite-*-py3-none-any.whl"))[-1]
-    want = wheel.name.split("-")[1]
-    r = run([py, "-c", "import opls_ff_lite; print(opls_ff_lite.__version__)"])
-    if r.returncode == 0 and r.stdout.strip() == want:
-        note("engine", "skip", f"opls-ff-lite {want} already installed")
-    else:
-        r = run([py, "-m", "pip", "install", "--no-deps", str(wheel)])
-        if r.returncode:
-            note("engine", "fail", f"pip install failed: {r.stderr.strip()[-300:]}")
-            return None
-        note("engine", "ok", f"installed {wheel.name}")
-    lite = tool(py, "opls-ff-lite")
-    if lite is None:
-        note("engine", "fail", "opls-ff-lite executable not found next to the interpreter")
-        return None
-    mopac = Path(a.mopac).expanduser() if a.mopac else tool(py, "mopac")
-    if mopac is None:
-        note("engine", "fail", "MOPAC not found: conda install -c conda-forge mopac=23.2.5 (or pass --mopac)")
-    else:
-        r = run([lite, "config", "set", "mopac", mopac.resolve()])
-        note("engine", "ok" if r.returncode == 0 else "fail",
-             f"MOPAC {mopac.resolve()}" if r.returncode == 0 else f"config set mopac failed: {r.stderr.strip()[-200:]}")
-    if a.si_dir:
-        files = [Path(a.si_dir).expanduser() / f for f in SI_FILES]
-        missing = [f.name for f in files if not f.is_file()]
-        if missing:
-            note("engine", "todo", f"OPLS/2020 SI files not in {a.si_dir}: {', '.join(missing)}")
-        else:
-            r = run([lite, "install-si", *files])
-            if r.returncode:
-                note("engine", "warn", f"install-si: {(r.stdout + r.stderr).strip()[-300:]}")
-    r = run([lite, "doctor"])
-    if r.returncode == 0:
-        note("engine", "ok", "opls-ff-lite doctor: all required items ok")
-    else:
-        note("engine", "todo" if not a.si_dir else "fail",
-             "opls-ff-lite doctor reports missing items (the OPLS/2020 SI files, Jorgensen et al. 2024, "
-             "doi:10.1021/acs.jpcb.3c06602, must be downloaded by you; pass the folder with --si-dir). "
-             f"Run `{lite} doctor` for details")
-    return lite
-
-
-# 3 -------------------------------------------------------------------------------------
 def skill(a, py):
     dest = Path(a.skills_dir).expanduser() / SKILL_SRC.name
     lock_tool = SKILL_SRC / "scripts" / "reference_lock.py"
@@ -204,7 +156,7 @@ def skill(a, py):
     return dest
 
 
-# 4 -------------------------------------------------------------------------------------
+# 3 -------------------------------------------------------------------------------------
 def references(a, root):
     refs = root / "references"
     for d in ("config", "runs"):
@@ -238,7 +190,7 @@ def references(a, root):
     return refs
 
 
-# 5 -------------------------------------------------------------------------------------
+# 4 -------------------------------------------------------------------------------------
 def gromacs(a):
     cands = [Path(a.gmx).expanduser()] if a.gmx else [Path(p) for p in map(shutil.which, ("gmx", "gmx_mpi")) if p]
     for g in cands:
@@ -255,8 +207,8 @@ def gromacs(a):
     return None, None
 
 
-# 6 -------------------------------------------------------------------------------------
-def configure(a, root, py, lite, gmx, gmx_doc):
+# 5 -------------------------------------------------------------------------------------
+def configure(a, root, py, gmx, gmx_doc):
     path = root / "environment.json"
     if not path.exists():
         shutil.copy(SKILL_SRC / "assets" / "environment.example.json", path)
@@ -272,7 +224,6 @@ def configure(a, root, py, lite, gmx, gmx_doc):
                 changed.append(f"{sub + '.' if sub else ''}{key}")
     put("python_command", [str(py)] if py else None, (None, [], ["python3"], ["python"]))
     put("gromacs_command", [str(gmx)] if gmx else None, (None, [], ["gmx"]))
-    put("opls_ff_gen_command", [str(lite)] if lite else None, (None, [], ["opls-ff-lite"]))
     if gmx_doc and cfg.get("gromacs_documentation_version") != gmx_doc:
         cfg["gromacs_documentation_version"] = gmx_doc
         changed.append("gromacs_documentation_version")
@@ -290,7 +241,7 @@ def configure(a, root, py, lite, gmx, gmx_doc):
     return cfg
 
 
-# 7, 8 ----------------------------------------------------------------------------------
+# 6, 7 ----------------------------------------------------------------------------------
 def pdf_text(py, pdf, txt):
     if txt.exists() or not pdf.exists():
         return None
@@ -349,7 +300,7 @@ def papers(root, py):
                                          else "; sources.json still to write (prepare-mode review)"))
 
 
-# 9 -------------------------------------------------------------------------------------
+# 8 -------------------------------------------------------------------------------------
 def mdp_check(a, root, cfg, gmx):
     if gmx is None:
         return
@@ -381,7 +332,7 @@ def mdp_check(a, root, cfg, gmx):
          + f"; logs in {wd.relative_to(root)}")
 
 
-# 10, 11 --------------------------------------------------------------------------------
+# 9, 10 --------------------------------------------------------------------------------
 def checks(a, root, py):
     refs = root / "references"
     r = run([py, SKILL_SRC / "scripts" / "build_index.py", "check", refs])
@@ -419,9 +370,7 @@ def main():
     ap.add_argument("--bundle", help="martini-agent-references-*.tar.gz from the release")
     ap.add_argument("--sums", help="SHA256SUMS for the bundle (default: beside the bundle)")
     ap.add_argument("--env-name", default="martini-agent", help="conda env to create or use")
-    ap.add_argument("--python", help="use this interpreter instead of a conda env; the opls-ff-lite wheel is installed into its environment")
-    ap.add_argument("--mopac", help="MOPAC executable (default: next to the interpreter, else PATH)")
-    ap.add_argument("--si-dir", help="folder holding jp3c06602_si_002.txt and jp3c06602_si_003.txt")
+    ap.add_argument("--python", help="use this interpreter instead of a conda env")
     ap.add_argument("--gmx", help="GROMACS executable (default: gmx or gmx_mpi on PATH)")
     ap.add_argument("--skills-dir", default="~/.claude/skills", help="agent skills directory")
     ap.add_argument("--threads", type=int, default=4, help="mdrun threads for the MDP check")
@@ -435,13 +384,12 @@ def main():
     py = python_env(a)
     if py is None:
         return summary(root)
-    lite = engine(a, py)
     skill(a, py)
     refs = references(a, root)
     gmx, gmx_doc = gromacs(a)
     if refs is None:
         return summary(root)
-    cfg = configure(a, root, py, lite, gmx, gmx_doc)
+    cfg = configure(a, root, py, gmx, gmx_doc)
     downloads(a, root, py, gmx_doc)
     papers(root, py)
     mdp_check(a, root, cfg, gmx)
@@ -457,7 +405,7 @@ def summary(root):
     for step, st, msg in fails + todos:
         print(f"  {st.upper():4s} {step}: {msg}")
     print(f"\nNext: export MARTINI_ENV={root / 'environment.json'}; cd {root}; claude\n"
-          "then ask for a prepare-mode review (README, 'Generating a topology', step 3), write "
+          "then ask for a prepare-mode review (README, 'Generating a topology', step 4), write "
           "references/index/readiness.json, and re-run this script with --lock.")
     return 1 if fails else 0
 

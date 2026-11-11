@@ -1,7 +1,6 @@
-# Environment for python_command: helpers, cgbuild.py, stage-4 bonded terms and the OPLS engine opls-ff-lite.
+# Environment for python_command: helpers, cgbuild.py and stage-4 bonded terms (no OPLS engine; the user supplies OPLS-AA topologies).
 # Versions as tested; the reference index was built with RDKit 2025.09.6.
 #   conda env create -f environment.yml && conda activate martini-agent
-#   python -m pip install --no-deps vendor/opls_ff_lite-0.1.0-py3-none-any.whl
 name: martini-agent
 channels:
   - conda-forge
@@ -14,5 +13,4 @@ dependencies:
   - matplotlib
   - pyyaml
   - poppler
-  - mopac=23.2.5        # AM1 for the CM1A charges (opls-ff-lite)
   - pip

@@ -6,7 +6,7 @@ This is the acquisition and placement procedure, not a claim that references are
 
 The release bundle holds this skill, `reference_manifest.json` and a `references/` tree with the openly licensed sources: the force field, tutorial (archive, page and PDF), production MDP, Bible, small-molecule library, polyply PEO data file, polyply article, our derived text and adapted MDP, and the index (`models.jsonl`, `sections.json`). Each manifest source records how it was acquired, its licence status, whether it is bundled, and the SHA-256 of every file.
 
-With the bundle, do section 1 (software, including `opls-ff-lite` from the release's `vendor/` folder and the OPLS/2020 SI files you download), place `references/` under `$MARTINI_AGENT_ROOT`, then do only the site steps:
+With the bundle, do section 1 (software), place `references/` under `$MARTINI_AGENT_ROOT`, then do only the site steps:
 
 1. Fetch the GROMACS manual pages and PDF for the installed version and derive the PDF text (section 6).
 2. Fetch the polyply SI and download the Souza 2021 and Alessandri 2022 articles and SI; derive text (section 5).
@@ -43,18 +43,9 @@ Install/locate GROMACS separately if `gmx` is unavailable. Poppler's `pdftotext`
 
 `scripts/cgbuild.py search` reads the Bible spreadsheet, so `python_command` also needs openpyxl.
 
-Bonded terms (stage 4) run with `python_command`, which also needs NumPy and SciPy, and an OPLS engine for OPLS/2020 topologies. The release ships `opls-ff-lite` (MIT; two AmberTools data files GPL-3.0), which needs only RDKit, NumPy and MOPAC, so it installs into the `python_command` environment:
+Bonded terms (stage 4) run with `python_command`, which also needs NumPy and SciPy. They need an OPLS-AA GROMACS topology of each molecule, which the user makes elsewhere with any OPLS engine (for example opls-ff-gen, opls-ff-lite or the LigParGen server) and passes to `cgbuild.py input --aa-topology FILE`. A `.top` (with `#include` files next to it) or a self-contained `.itp` with `[ atomtypes ]` works; a bare `.itp` without `[ defaults ]` gets the OPLS-AA defaults. The topology must describe the SMILES species, protonation state included; any charge method is accepted (`references/bonded.md`). No OPLS engine is needed at the site.
 
-```bash
-conda install -c conda-forge mopac=23.2.5          # into the python_command environment
-python -m pip install --no-deps vendor/opls_ff_lite-0.1.0-py3-none-any.whl
-opls-ff-lite install-si jp3c06602_si_002.txt jp3c06602_si_003.txt
-opls-ff-lite doctor
-```
-
-The OPLS/2020 parameter files are the Supporting Information of Jorgensen et al., J. Phys. Chem. B 2024 (https://doi.org/10.1021/acs.jpcb.3c06602). They may not be redistributed: download `jp3c06602_si_002.txt` and `jp3c06602_si_003.txt` from the publisher; `install-si` checks them against the validated release and copies them to `~/.local/share/opls-ff-lite/opls2020/`. If MOPAC is elsewhere: `opls-ff-lite config set mopac PATH`. `doctor` must report every item ok.
-
-Record the engine command in environment.json as `opls_ff_gen_command` (the key keeps its name), for example `["opls-ff-lite"]`. The full `opls-ff-gen` also works (it writes identical topologies with MMFF94 geometry, but uses GFN2-xTB geometry for neutral molecules and needs xTB). The energy model is NumPy code in the skill (`scripts/d5bonded/energy.py`); OpenMM and LigParGen are not used. The energy calculations run on CPU, and no dynamics is run.
+Optionally, a site with an OPLS/2020 engine installed may record it in environment.json as `opls_ff_gen_command` (an argv list taking `--smiles`, `--name`, `--output-dir`, `--optimize` and `--charge-model`, as opls-ff-gen and opls-ff-lite do). It is used only for molecules given without `--aa-topology`; leave it `null` otherwise. The energy model is NumPy code in the skill (`scripts/d5bonded/energy.py`); OpenMM is not used, and no engine runs here unless `opls_ff_gen_command` is set. The energy calculations run on CPU, and no dynamics is run.
 
 Set `SKILL_DIR` to the directory containing this installed skill's SKILL.md (or its complete copy in a local agent's skills directory):
 

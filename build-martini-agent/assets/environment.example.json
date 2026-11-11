@@ -27,9 +27,7 @@
   "gromacs_command": [
     "gmx"
   ],
-  "opls_ff_gen_command": [
-    "opls-ff-lite"
-  ],
+  "opls_ff_gen_command": null,
   "bonded": {
     "method": "d5_opls_obc2_numpy",
     "n_conformers": 300,

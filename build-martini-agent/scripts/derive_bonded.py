@@ -5,9 +5,11 @@ Reads   input/request.json, decisions/design.json (beads, members, virtual sites
 Writes  decisions/bonded.json        terms, exclusions, dropped terms, ensemble record
         bonded/ensemble_beads.npz    resampled bead coordinates (nm), for later analysis
         bonded/ensemble_atoms.npz    the same frames as atoms (nm), for the SASA check
-        bonded/opls-ff-gen/          the OPLS topology and its log
+        bonded/opls-ff-gen/          the engine's OPLS topology and its log (only when no topology was supplied)
 
-No molecular dynamics is run. Every value is a reproducible calculation from the SMILES and the mapping.
+The OPLS-AA topology is the one supplied at `cgbuild.py input --aa-topology` (input/aa_topology.top), used as given;
+without one, the engine in opls_ff_gen_command is run (d5bonded/opls.py).
+No molecular dynamics is run. Every value is a reproducible calculation from the SMILES, the topology and the mapping.
 
 usage: derive_bonded.py MOLDIR --env ENVIRONMENT_JSON
 """
@@ -24,7 +26,7 @@ from d5bonded import fit as F  # noqa: E402
 from d5bonded.ensemble import d5_ensemble  # noqa: E402
 from d5bonded.geometry import angles, dihedrals, distances  # noqa: E402
 from d5bonded.energy import NumpyEnergy, build_model  # noqa: E402
-from d5bonded.opls import POLAR_H_LJ, TopologyError, build_topology  # noqa: E402
+from d5bonded.opls import POLAR_H_LJ, TopologyError, build_topology, load_supplied_topology  # noqa: E402
 from d5bonded.terms import bead_masses, build_terms, read_sigma, rigid_groups  # noqa: E402
 from rdkit import Chem, rdBase  # noqa: E402
 
@@ -60,17 +62,28 @@ def energy_model(t):
     return NumpyEnergy(build_model(t.top, polar_h_lj=POLAR_H_LJ), t.perm, name)
 
 
-def derive_ensemble(smiles, workdir, env, T):
-    """Topology from opls-ff-gen, energy model, ensemble; the attempt is recorded."""
+def get_topology(smiles, req, md, env):
+    """The supplied topology if the request has one, else the engine's (opls_ff_gen_command)."""
+    if req.get("aa_topology"):
+        return load_supplied_topology(smiles, req["aa_topology"], md)
+    if not env.get("opls_ff_gen_command"):
+        raise TopologyError("no AA topology supplied (cgbuild.py input --aa-topology) and no opls_ff_gen_command set")
+    return build_topology(smiles, Path(md) / "bonded", env["opls_ff_gen_command"])
+
+
+def derive_ensemble(smiles, req, md, env, T):
+    """Topology (supplied or engine), energy model, ensemble; the attempt is recorded."""
     b = env["bonded"]
     try:
-        t = build_topology(smiles, workdir, env["opls_ff_gen_command"])
+        t = get_topology(smiles, req, md, env)
         em = energy_model(t)
         ens = d5_ensemble(smiles, n_conf=b["n_conformers"], temperature=T, n_samples=b["n_samples_per_minimum"],
                           seed=env["random_seed"], energy_model=em, hess_e_window=b["hess_e_window_kcal_mol"])
     except (TopologyError, RuntimeError, OSError, KeyError, ValueError, TypeError) as e:
-        raise TopologyError(f"opls-ff-gen: {type(e).__name__}: {str(e)[:300]}") from e
-    return em, t, ens, [dict(engine=t.engine, result="used")]
+        src = ("supplied topology" if req.get("aa_topology") else "opls-ff-gen" if env.get("opls_ff_gen_command")
+               else "stage 4")
+        raise TopologyError(f"{src}: {type(e).__name__}: {str(e)[:300]}") from e
+    return em, t, ens, [dict(engine=t.engine, source=t.source, result="used")]
 
 
 def software_versions():
@@ -154,7 +167,7 @@ def main():
     b = env["bonded"]
     T = float(env["default_temperature_K"])
     t0 = time.time()
-    em, top, ens, tried = derive_ensemble(smiles, md / "bonded", env, T)
+    em, top, ens, tried = derive_ensemble(smiles, req, md, env, T)
     M = mapping_matrix(des, mol_h)
     virtual = [i for i, bd in enumerate(des["beads"]) if any(v["site"] == i + 1 for v in des.get("virtual_sites", []))]
     is_virtual = np.isin(np.arange(M.shape[0]), virtual)
@@ -185,6 +198,10 @@ def main():
     if q_max > 2.0:
         flags.append(dict(flag="large_atomic_charge", max_abs_charge_e=round(q_max, 3),
                           note="hypervalent P or S: conformer weights are less certain"))
+    odd = [n for n in top.notes or [] if not n.startswith("no [ defaults ]")]
+    if odd:
+        flags.append(dict(flag="supplied_topology_notes", notes=odd,
+                          note="the supplied AA topology was used as given; see energy_model.topology_notes"))
     if ens.info["n_collapsed"]:
         flags.append(dict(flag="collapsed_minima_discarded", n_collapsed=ens.info["n_collapsed"], n_used_minima=len(used),
                           note="minima where a sigma-0 hydrogen fell onto a charged atom were removed; conformer weights are less certain"))
@@ -197,7 +214,8 @@ def main():
         ensemble={k: ens.info[k] for k in ("n_conf", "n_unique", "n_used", "n_e_window_skipped", "n_saddle_rejected",
                                            "n_collapsed", "n_eff_minima", "top_weight", "rejected_frac", "achiral", "mirrored",
                                            "n_samples_per_min")},
-        energy_model=dict(name=em.name, engine=top.engine, charge_model=top.charge_model, engines_tried=tried,
+        energy_model=dict(name=em.name, engine=top.engine, charge_model=top.charge_model, topology_source=top.source,
+                          topology_notes=top.notes or [], engines_tried=tried,
                           max_abs_atomic_charge_e=round(q_max, 3), topology=str(top.itp.relative_to(md)),
                           conformer_search="ETKDGv3 + MMFF94, re-minimized under the energy model"),
         software=software_versions(),
