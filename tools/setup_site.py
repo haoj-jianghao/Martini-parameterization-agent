@@ -11,8 +11,10 @@ after you supply what it reports as missing. Steps:
 
   1. Python environment: create the conda env from environment.yml (or use --python),
      check RDKit, NumPy, SciPy, openpyxl.
-  2. Skill: copy build-martini-agent/ into the skills directory and verify it against
-     locks/skill.lock.json (an older copy is kept as build-martini-agent.bak-<time>).
+  2. Skill: copy build-martini-agent/ into the workspace (--root) and verify it against
+     locks/skill.lock.json (an older copy is kept as build-martini-agent.bak-<time>);
+     write AGENTS.md and CLAUDE.md there (if absent) so any coding agent started in the
+     workspace finds the skill.
   3. References: check the bundle against SHA256SUMS and unpack it under --root.
   4. GROMACS: find it and read its version.
   5. environment.json: create it from the template and fill python_command,
@@ -30,6 +32,11 @@ after you supply what it reports as missing. Steps:
 It never edits bundled reference files and never runs downloaded code. The scientific
 review (paper identity, sources.json, readiness.json) is prepare mode's job:
 references/environment.md, section 0.
+
+Everything lives under --root: the skill, environment.json, references/, config/, runs/.
+Nothing is written to an agent's own configuration (e.g. ~/.claude), so the workspace
+works with any coding agent that has a shell. The skill's scripts find
+<root>/environment.json next to the skill folder, so MARTINI_ENV is optional.
 
 No OPLS engine is installed: stage 4 uses an OPLS-AA topology that the user makes
 elsewhere for each molecule and passes to `cgbuild.py input --aa-topology`.
@@ -139,8 +146,22 @@ def python_env(a):
 
 
 # 2 -------------------------------------------------------------------------------------
-def skill(a, py):
-    dest = Path(a.skills_dir).expanduser() / SKILL_SRC.name
+AGENTS_TEMPLATE = REPO / "tools" / "workspace-AGENTS.md"
+
+
+def agent_notes(root):
+    """AGENTS.md (read by Codex and other agents) and CLAUDE.md (Claude Code) at the workspace root."""
+    for name, text in (("AGENTS.md", AGENTS_TEMPLATE.read_text()), ("CLAUDE.md", "@AGENTS.md\n")):
+        p = root / name
+        if p.exists():
+            note("skill", "skip", f"{name} exists; left unchanged")
+        else:
+            p.write_text(text)
+            note("skill", "ok", f"wrote {name}")
+
+
+def skill(a, py, root):
+    dest = root / SKILL_SRC.name
     lock_tool = SKILL_SRC / "scripts" / "reference_lock.py"
     if dest.exists():
         if run([py, lock_tool, "verify", dest, SKILL_LOCK]).returncode == 0:
@@ -366,13 +387,13 @@ def checks(a, root, py):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=os.environ.get("MARTINI_AGENT_ROOT", "~/martini-agent-lab"),
-                    help="workspace (default $MARTINI_AGENT_ROOT or ~/martini-agent-lab)")
+                    help="workspace holding the skill, environment.json, references and runs "
+                         "(default $MARTINI_AGENT_ROOT or ~/martini-agent-lab)")
     ap.add_argument("--bundle", help="martini-agent-references-*.tar.gz from the release")
     ap.add_argument("--sums", help="SHA256SUMS for the bundle (default: beside the bundle)")
     ap.add_argument("--env-name", default="martini-agent", help="conda env to create or use")
     ap.add_argument("--python", help="use this interpreter instead of a conda env")
     ap.add_argument("--gmx", help="GROMACS executable (default: gmx or gmx_mpi on PATH)")
-    ap.add_argument("--skills-dir", default="~/.claude/skills", help="agent skills directory")
     ap.add_argument("--threads", type=int, default=4, help="mdrun threads for the MDP check")
     ap.add_argument("--no-fetch", action="store_true", help="skip network downloads")
     ap.add_argument("--reconfigure", action="store_true", help="overwrite values already set in environment.json")
@@ -384,7 +405,8 @@ def main():
     py = python_env(a)
     if py is None:
         return summary(root)
-    skill(a, py)
+    skill(a, py, root)
+    agent_notes(root)
     refs = references(a, root)
     gmx, gmx_doc = gromacs(a)
     if refs is None:
@@ -404,7 +426,7 @@ def summary(root):
     print(f"{sum(r[1] in ('ok', 'skip') for r in RESULTS)} done, {len(todos)} to do, {len(fails)} failed")
     for step, st, msg in fails + todos:
         print(f"  {st.upper():4s} {step}: {msg}")
-    print(f"\nNext: export MARTINI_ENV={root / 'environment.json'}; cd {root}; claude\n"
+    print(f"\nNext: cd {root} and start your coding agent there (e.g. claude, codex);\n"
           "then ask for a prepare-mode review (README, 'Generating a topology', step 4), write "
           "references/index/readiness.json, and re-run this script with --lock.")
     return 1 if fails else 0

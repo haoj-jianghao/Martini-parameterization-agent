@@ -51,10 +51,21 @@ python3 tools/setup_site.py \
     --gmx /path/to/gmx                 # optional if gmx is on PATH
 ```
 
-The script needs only Python 3.8+ and conda (or mamba), and installs into `~/martini-agent-lab` unless you pass `--root`. It creates the conda env `martini-agent` from `environment.yml` (or uses `--python`), copies the skill into `~/.claude/skills/` and checks it against the skill lock, unpacks and checks the references bundle, finds GROMACS, writes `environment.json`, downloads the GROMACS manual for your version and the polyply SI, re-checks the adapted MDP (`grompp -maxwarn 0` and a 10 ps run on the bundled water box), runs the index check and compares your references with the manifest. Steps already done are skipped, so re-run it after you supply what it reports as missing:
+The script needs only Python 3.8+ and conda (or mamba), and installs into `~/martini-agent-lab` unless you pass `--root`. It creates the conda env `martini-agent` from `environment.yml` (or uses `--python`), copies the skill into the workspace (`<root>/build-martini-agent/`) and checks it against the skill lock, writes `AGENTS.md` and `CLAUDE.md` in the workspace so that a coding agent started there finds the skill, unpacks and checks the references bundle, finds GROMACS, writes `environment.json`, downloads the GROMACS manual for your version and the polyply SI, re-checks the adapted MDP (`grompp -maxwarn 0` and a 10 ps run on the bundled water box), runs the index check and compares your references with the manifest. Steps already done are skipped, so re-run it after you supply what it reports as missing:
 
 - the Souza 2021 and Alessandri 2022 articles and SI, placed under `references/original/papers/Souza2021/` and `references/original/papers/alessandri2022/` as `article.pdf` and `supporting-information.pdf` (the script derives their text);
 - the prepare-mode review ("Generating a topology", step 4), which writes the papers' `sources.json` and `references/index/readiness.json`.
+
+Everything goes under `--root`; nothing is written to an agent's own configuration (such as `~/.claude`), so the workspace works with any coding agent that has a shell:
+
+```text
+<root>/
+  AGENTS.md, CLAUDE.md     point the agent to build-martini-agent/SKILL.md
+  build-martini-agent/     the skill
+  environment.json         site configuration (the skill's scripts find it here)
+  references/  config/     references and their lock
+  runs/                    one folder per model
+```
 
 Then run it once more with `--lock` to create the site's reference lock. It refuses while anything is failed or missing. `python3 tools/setup_site.py --help` lists every option.
 
@@ -64,13 +75,15 @@ The same steps, one by one:
 
 ```bash
 export MARTINI_AGENT_ROOT="$HOME/martini-agent-lab"
-export SKILL_DIR="$HOME/.claude/skills/build-martini-agent"
+export SKILL_DIR="$MARTINI_AGENT_ROOT/build-martini-agent"
 
 # 1. Python environment
 conda env create -f environment.yml && conda activate martini-agent
 
-# 2. Skill
-mkdir -p "$(dirname "$SKILL_DIR")" && cp -r build-martini-agent "$SKILL_DIR"
+# 2. Skill, inside the workspace, and the notes that point agents to it
+mkdir -p "$MARTINI_AGENT_ROOT" && cp -r build-martini-agent "$SKILL_DIR"
+cp tools/workspace-AGENTS.md "$MARTINI_AGENT_ROOT/AGENTS.md"
+echo "@AGENTS.md" > "$MARTINI_AGENT_ROOT/CLAUDE.md"
 
 # 3. References bundle (download the release asset first)
 sha256sum -c SHA256SUMS
@@ -105,19 +118,19 @@ The agent turns one SMILES into a tested Martini 3 topology. It makes the chemic
 
 ### 1. Start a session
 
-Every shell the agent uses needs the environment file and the Python environment:
+Start the agent in the workspace. Every shell it uses needs the Python environment:
 
 ```bash
 conda activate martini-agent
 export MARTINI_AGENT_ROOT="$HOME/martini-agent-lab"
-export MARTINI_ENV="$MARTINI_AGENT_ROOT/environment.json"   # required: the skill's scripts do not find it otherwise
+# export MARTINI_ENV=/other/environment.json               # optional: default is environment.json beside the skill folder
 export MARTINI_GMX_THREADS=4                                 # optional: mdrun threads (default 4)
 unset OMP_NUM_THREADS                                        # GROMACS rejects a mismatch with -ntomp
 cd "$MARTINI_AGENT_ROOT"
-claude
+claude        # or codex, or another coding agent with a shell
 ```
 
-Start the agent in `$MARTINI_AGENT_ROOT`, so the references and `runs/` are inside its workspace. Claude Code finds the skill in `~/.claude/skills/build-martini-agent/`; you can name it in the prompt or invoke it as `/build-martini-agent`. The agent runs many shell commands (Python, GROMACS); approve them as they come, or allow `Bash`, `Read`, `Write` and `Edit` for this workspace.
+Starting in the workspace keeps the skill, references and `runs/` inside the agent's working folder. The agent learns about the skill from `AGENTS.md` (Codex and most other agents) or `CLAUDE.md` (Claude Code), which tell it to read `build-martini-agent/SKILL.md`; naming the skill in the prompt also works. Claude Code users who want the `/build-martini-agent` command can link the skill: `ln -s "$MARTINI_AGENT_ROOT/build-martini-agent" ~/.claude/skills/`. The agent runs many shell commands (Python, GROMACS); approve them as they come, or allow shell and file edits for this workspace.
 
 ### 2. Make the all-atom topology
 
@@ -165,7 +178,7 @@ To prepare a new site, ask instead: `Use the build-martini-agent skill in prepar
 
 ### 5. Run without interaction (scripts, batches)
 
-The benchmark ran one headless session per molecule, from inside an empty molecule folder:
+The benchmark ran one headless Claude Code session per molecule, from inside an empty molecule folder (other agents have similar non-interactive modes, e.g. `codex exec`):
 
 ```bash
 mkdir -p "$MARTINI_AGENT_ROOT/runs/DEET" && cd "$MARTINI_AGENT_ROOT/runs/DEET"
@@ -219,7 +232,7 @@ Open `report.md` first.
 | Symptom | Cause and fix |
 | --- | --- |
 | Every GROMACS test fails at once | `OMP_NUM_THREADS` is set; unset it |
-| Scripts cannot find `environment.json` | `MARTINI_ENV` is not exported in the agent's shell |
+| Scripts cannot find `environment.json` | The skill folder is not beside `environment.json` (`<root>/build-martini-agent/`); move it there, or export `MARTINI_ENV` in the agent's shell |
 | `cgbuild.py input` rejects the topology | The message says why: different atoms or bonds than the SMILES (often a different protonation state or missing hydrogens), a net charge that differs from the SMILES, or an unsupported section or function type. Regenerate the topology for the exact SMILES |
 | Stage 4 (`bonded`) fails with "no AA topology supplied" | The molecule was started without `--aa-topology`; re-run `cgbuild.py input` with it |
 | `reference_lock.py verify` fails | A reference file changed after locking; restore it or make a new lock, never relock silently |
