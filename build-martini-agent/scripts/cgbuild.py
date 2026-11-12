@@ -11,6 +11,10 @@ records, runs GROMACS and parses its output.
 
 The environment file is $MARTINI_ENV, or environment.json next to the skill folder.
 
+decisions/design.json is written with scripts/design.py (one decision per command); `build` records whether
+it was (static check design_record_written_by_design_tool). When MARTINI_MOLDIR is set (scripts/batch.py),
+every subcommand except summary must target that folder.
+
 Subcommands (run with the environment's python_command):
   input    <moldir> --smiles S --id ID --name NAME [--class C] [--stereo-note N]
            [--aa-topology TOP_OR_ITP [--aa-engine E] [--aa-charge-model M]]
@@ -75,6 +79,30 @@ def rjson(path):
 TERM_RULES_SOURCE = [{'path': 'build-martini-agent/scripts/d5bonded/terms.py', 'locator': 'module rules'},
                      {'path': 'references/original/small-molecules/models/itps/opt-mono/PBEN.itp', 'locator': '[exclusions] 1 4'},
                      {'path': 'references/derived/tutorial-page.txt', 'locator': 'line 278: exclusions between all beads of a stiff molecule'}]
+
+
+def design_provenance(md):
+    """Was decisions/design.json last written by scripts/design.py? Compares its hash with the last entry of
+    decisions/design_log.jsonl, which design.py appends after every command."""
+    log = md / 'decisions/design_log.jsonl'
+    cur = sha256(md / 'decisions/design.json')
+    if not log.exists():
+        return {'written_by_design_tool': False, 'reason': 'no decisions/design_log.jsonl: design.json was written by hand or by other code'}
+    recs = [json.loads(l) for l in open(log) if l.strip()]
+    last = recs[-1]['design_sha256'] if recs else None
+    sessions = sorted({json.dumps(r.get('session', {}), sort_keys=True) for r in recs})
+    return {'written_by_design_tool': last == cur, 'n_commands': len(recs),
+            'commands': sorted({r['command'] for r in recs}),
+            'reason': None if last == cur else 'design.json changed after the last design.py command',
+            'sessions': [json.loads(x) for x in sessions]}
+
+
+def bound_check(moldir):
+    """One molecule per agent session: scripts/batch.py binds each session to its folder via MARTINI_MOLDIR."""
+    b = os.environ.get('MARTINI_MOLDIR')
+    if b and Path(b).resolve() != Path(moldir).resolve():
+        sys.exit(f'cgbuild.py: this agent session is bound to {b}; it may not work on {moldir}. '
+                 'One molecule per session (SKILL.md "Rules"); other molecules get their own session via scripts/batch.py.')
 
 
 def bead_size(t):
@@ -506,6 +534,9 @@ def cmd_build(a):
     static.append({'check': 'bead_size_matches_heavy_atoms', 'result': 'flag' if flagged else 'pass',
                    'detail': {'flagged': flagged, 'beads': size_rec,
                               'rule': 'T 2, S 3, R 4 heavy atoms (Souza 2021 SI section C1, p. 36); exceptions in cgbuild.bead_size_issue'}})
+    prov = design_provenance(md)
+    static.append({'check': 'design_record_written_by_design_tool', 'result': 'pass' if prov['written_by_design_tool'] else 'flag',
+                   'detail': prov})
     # --- geometry over conformers
     all_pos, all_mapped = [], []
     for m in mols:
@@ -1174,6 +1205,11 @@ def cmd_finalize(a):
                      'numpy': np.__version__, 'gromacs': gmx_version(), 'gromacs_command': GMX,
                      'bonded_stage': bonded['software']},
         'model_identifier': des.get('authored_by', 'unknown'),
+        'agent_session': {'bound_moldir': os.environ.get('MARTINI_MOLDIR'), 'batch': os.environ.get('MARTINI_BATCH'),
+                          'one_molecule_session': bool(os.environ.get('MARTINI_MOLDIR'))
+                          and Path(os.environ['MARTINI_MOLDIR']).resolve() == md.resolve(),
+                          'note': 'set by scripts/batch.py, which starts one agent session per molecule'},
+        'design_provenance': design_provenance(md),
         'seeds': {'conformer_embedding': SEED, 'gen_seed_eq1': SEED},
         'hashes': {'request_json': sha256(md / 'input/request.json'), 'environment_json': sha256(ENV_PATH),
                    **({'aa_topology': req['aa_topology']['sha256']} if req.get('aa_topology') else {}),
@@ -1232,6 +1268,10 @@ def write_report(md, req, des, mp, par, ana, val, man, exe, bonded):
     R.append(f"- Beads: {mp['n_beads']} ({', '.join(b['name']+'='+b['type'] for b in mp['beads'])}); "
              f"virtual sites: {sum(1 for b in mp['beads'] if b['virtual_site'])}")
     R.append(f"- Provisional types: {', '.join(val['provisional_types']) or 'none'}")
+    dp, ses = man.get('design_provenance', {}), man.get('agent_session', {})
+    R.append(f"- Decision record written by scripts/design.py: {dp.get('written_by_design_tool')}"
+             + (f" ({dp['reason']})" if dp.get('reason') else '')
+             + f"; one-molecule agent session (scripts/batch.py): {ses.get('one_molecule_session')}")
     R.append(f"- Unresolved terms: {', '.join(val['unresolved_terms']) or 'none'}")
     used = [h for h in ana['hits'] if h['used']]
     R.append(f"- Analogue search: {ana['n_hits']} hits, {len(used)} used: " + ', '.join(h['reference_id'] for h in used))
@@ -1333,16 +1373,19 @@ def cmd_summary(a):
                      'tested_dynamics': val['tested_dynamics'],
                      'n_unverified_statements': len(man['unverified_statements']),
                      'failed_checks': [c['check'] for c in val['checks'] if c['result'] == 'fail'],
-                     'flagged_checks': [c['check'] for c in val['checks'] if c['result'] == 'flag']})
+                     'flagged_checks': [c['check'] for c in val['checks'] if c['result'] == 'flag'],
+                     'one_molecule_session': man.get('agent_session', {}).get('one_molecule_session', False),
+                     'design_by_tool': man.get('design_provenance', {}).get('written_by_design_tool', False),
+                     'typing_rungs': [b['typing_ladder']['rung_used'] for b in mp['beads']]})
     wjson(bd / 'summary.json', {'schema_version': 1, 'batch': bd.name, 'created_utc': now(), 'molecules': rows,
                                 'status_counts': {s: sum(1 for r in rows if r['status'] == s) for s in sorted({r['status'] for r in rows})}})
     R = [f'# Batch {bd.name}', '', 'Built only from each molecule\'s records (validation.json, mapping.json, parameters.json, analogue_search.json, manifest.json).', '',
-         '| ID | Name | Status | Beads | Types | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Flags | Exposed |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+         '| ID | Name | Status | Beads | Types | Rungs | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Flags | Exposed | Own session | Design tool |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for r in rows:
-        R.append(f"| {r['molecule_id']} | {r['name']} | {r['status']} | {r['n_beads']} | {' '.join(r['bead_types'])} | {r['net_charge_e']} | "
+        R.append(f"| {r['molecule_id']} | {r['name']} | {r['status']} | {r['n_beads']} | {' '.join(r['bead_types'])} | {' '.join(map(str, r['typing_rungs']))} | {r['net_charge_e']} | "
                  f"{', '.join(r['provisional_types']) or '-'} | {', '.join(r['unresolved_terms']) or '-'} | "
-                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {', '.join(r['flagged_checks']) or '-'} | {r['reference_exposed']} |")
+                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {', '.join(r['flagged_checks']) or '-'} | {r['reference_exposed']} | {r['one_molecule_session']} | {r['design_by_tool']} |")
     R.append('')
     R.append('Per-molecule details: `<ID>/report.md`.')
     (bd / 'report.md').write_text('\n'.join(R) + '\n')
@@ -1368,6 +1411,8 @@ def main():
     q = sp.add_parser('summary')
     q.add_argument('batchdir')
     a = ap.parse_args()
+    if a.cmd != 'summary':
+        bound_check(a.moldir)
     {'input': cmd_input, 'search': cmd_search, 'bonded': cmd_bonded, 'build': cmd_build, 'test': cmd_test,
      'finalize': cmd_finalize, 'summary': cmd_summary}[a.cmd](a)
 

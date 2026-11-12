@@ -13,7 +13,7 @@ Modes: **prepare** (a pinned, locked reference library, once per site), **genera
 | --- | --- |
 | The skill | `build-martini-agent/` (copy the whole folder; `SKILL.md` alone is not self-contained) |
 | Reference manifest | `reference_manifest.json`: every reference source, how to acquire it, licence status, bundled or not, SHA-256 of every file |
-| Locks | `locks/skill.lock.json` (skill v15), `locks/references.lock.json` (reference snapshot v7, our site) |
+| Locks | `locks/skill.lock.json` (skill v16), `locks/references.lock.json` (reference snapshot v7, our site) |
 | Maintainer tool | `tools/make_manifest.py` (build the manifest, assemble the bundle) |
 | Python environment | `environment.yml` |
 | References bundle | Release asset `martini-agent-references-v7.tar.gz` with `SHA256SUMS`, not in git |
@@ -151,11 +151,11 @@ Use the build-martini-agent skill in Generate mode with environment $MARTINI_ENV
 Molecule: ID DEET, name N,N-diethyl-meta-toluamide, SMILES CCN(CC)C(=O)c1cccc(C)c1,
 OPLS-AA topology /path/to/DEET/mol.top (made with opls-ff-gen, 1.14*CM1A-LBCC charges).
 Make the mapping, bead-type and charge decisions yourself, use no automatic CG generator,
-run the full sequence (input, design, search, bonded, build, test, finalize), then the
+run the full sequence (input, design.py, bonded, build, test, finalize), then the
 multi-seed check and the SASA check, and summarise the result.
 ```
 
-Write the SMILES in the charge and protonation state you want simulated; the agent keeps it as given and asks only when the species is ambiguous. For several molecules, list them all in one request, each with its topology; each gets its own decisions and folder.
+Write the SMILES in the charge and protonation state you want simulated; the agent keeps it as given and asks only when the species is ambiguous. One request builds one molecule. For several molecules, use the batch launcher (section 5), which gives each molecule its own agent session: a single session that builds many molecules tends to reuse decisions across them, and the skill does not accept that.
 
 ### 4. What the agent does
 
@@ -163,8 +163,8 @@ Write the SMILES in the charge and protonation state you want simulated; the age
 | --- | --- | --- | --- |
 | Preflight | agent | Checks the Python env, GROMACS, the reference lock and that each molecule has a topology | |
 | `cgbuild.py input` | script | Parses the SMILES, freezes an atom-indexed structure and conformers; checks and copies the OPLS-AA topology | `input/` |
-| Mapping, types, charges | **agent** | Searches the reference index for analogues, reads the papers, Bible and analogous models, proposes up to three mappings, picks one and types each bead, citing a pinned file for every decision | `decisions/design.json` |
-| `cgbuild.py search` | script | Re-runs the agent's index queries; records every hit and whether the target itself is in the references | `decisions/analogue_search.json` |
+| `design.py init` | script | Derives index queries from the molecule (rings, junctions, functional groups, chains), searches the index and the Bible, and records every hit and whether the target itself is in the references | `decisions/analogue_search.json` |
+| Mapping, types, charges | **agent** | Opens the relevant references bead by bead, reads the papers and Bible, proposes up to three mappings, picks one and types each bead. Every decision is recorded with `design.py`, which verifies a transferred type against the source bead's atoms | `decisions/design.json`, `design_log.jsonl` |
 | `cgbuild.py bonded` | script | Derives all bonds, angles, dihedrals and constraints without MD: the supplied OPLS-AA topology, conformer minima, Hessians, Boltzmann-weighted samples | `decisions/bonded.json` |
 | `cgbuild.py build` | script | Writes the topology, coordinates, drawing and static checks | `model/` |
 | `cgbuild.py test` | script | Solvates in Martini water, adds counterions, runs minimisation, two equilibration stages and a 100 ps smoke test | `test/` |
@@ -176,18 +176,17 @@ The agent never writes bonded terms; if a check fails, it repairs the mapping or
 
 To prepare a new site, ask instead: `Use the build-martini-agent skill in prepare mode for $MARTINI_ENV. Inspect the existing files and list anything missing.`
 
-### 5. Run without interaction (scripts, batches)
+### 5. Batches: one agent session per molecule
 
-The benchmark ran one headless Claude Code session per molecule, from inside an empty molecule folder (other agents have similar non-interactive modes, e.g. `codex exec`):
+List the molecules in a tab-separated file with a header: `id`, `name`, `smiles`, `aa_topology` (path to its OPLS-AA topology, relative to the file), and optionally `aa_engine` and `aa_charge_model`. Then run, outside any agent session:
 
 ```bash
-mkdir -p "$MARTINI_AGENT_ROOT/runs/DEET" && cd "$MARTINI_AGENT_ROOT/runs/DEET"
-claude -p "$PROMPT" --model claude-haiku-5-5 --output-format json \
-  --allowedTools "Bash Read Write Edit Glob Grep" --disallowedTools "Agent Task WebFetch WebSearch" \
-  --add-dir "$MARTINI_AGENT_ROOT" --max-budget-usd 10 > DEET.agent.json
+cd "$MARTINI_AGENT_ROOT"
+python build-martini-agent/scripts/batch.py run --molecules molecules.tsv --batch mybatch \
+  --agent claude --model claude-haiku-5-5 --jobs 4     # or: --agent codex --model gpt-5
 ```
 
-`$PROMPT` is the request from step 3, plus: the path of `SKILL.md` to read first, the topology path, the molecule folder to work in, the `python_command` to use, and an instruction not to modify anything outside that folder and to report script failures instead of patching code. Each finished folder is self-contained; `python "$SKILL_DIR/scripts/cgbuild.py" summary <batch folder>` writes a batch report.
+The launcher creates `runs/mybatch-<UTC>/<ID>/` and starts one headless agent session for each molecule (`claude -p` or `codex exec`), with the prompt in `build-martini-agent/assets/agent_prompt.md` and `MARTINI_MOLDIR` set to that molecule's folder; the skill's scripts refuse any other folder in that session. `--dry-run` writes the folders and `batch.json` without starting agents; `batch.py prompt` prints one molecule's prompt. Other agent command lines go in `environment.json` as `agent_commands`. When all sessions end, the launcher writes the batch `report.md` and `summary.json`, which show for each molecule whether it was built in its own session and whether its design was recorded with `design.py`.
 
 ### 6. The result
 
