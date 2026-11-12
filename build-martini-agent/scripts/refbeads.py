@@ -12,6 +12,11 @@ Sources of atom membership, by index entry:
 - `mapping_cgsmiles` and Bible rows: the CGSmiles fragment strings (bonding descriptors become dummies,
   `[C;0.5]` weights become labels, weight-0 atoms are context only);
 - single-bead models without a mapping file: the whole molecule.
+A CGSmiles fragment is a definition, not a bead: one `[$]CCC[$]` fragment serves a terminal and a middle
+bead, `|n` repeats a node, and a squash descriptor `[!...]` marks an atom shared with the neighbouring bead.
+Each CGSmiles bead is therefore placed on the source molecule's SMILES (all beads together cover every heavy
+atom with total weight one, bonded CG nodes touch) and takes the signature it has there. A bead that cannot
+be placed unambiguously gets `signature_error` and no signature, so it cannot support rung 1.
 A multi-bead model without a mapping file cannot establish exact transfer (data-contract.md) and yields
 no beads. Deterministic; contains no chemical decisions.
 """
@@ -81,23 +86,165 @@ def fragment_signature(mol, weights):
     return _normalise(rw.GetMol())
 
 
+def _fragment_query(frag_smiles):
+    """Query for one CGSmiles fragment (SMILES with dummies, as cgsmiles_beads stores it): its real atoms by
+    element and aromaticity, the bonds among them, and per atom its weight and whether it may bond out of the
+    bead (it carried a bonding descriptor or a weight-0 neighbour)."""
+    m = Chem.MolFromSmiles(frag_smiles, sanitize=False)
+    if m is None:
+        raise ValueError(f'cannot parse fragment {frag_smiles!r}')
+    real = [a.GetIdx() for a in m.GetAtoms() if a.GetAtomicNum() > 0]
+    pos = {i: k for k, i in enumerate(real)}
+    rw = Chem.RWMol()
+    for i in real:
+        a = m.GetAtomWithIdx(i)
+        rw.AddAtom(Chem.AtomFromSmarts(f"[#{a.GetAtomicNum()};{'a' if a.GetIsAromatic() else 'A'}]"))
+    for bd in m.GetBonds():
+        i, j = bd.GetBeginAtomIdx(), bd.GetEndAtomIdx()
+        if i in pos and j in pos:
+            arom = bd.GetIsAromatic() or bd.GetBondType() == Chem.BondType.AROMATIC
+            q = Chem.BondFromSmarts('~' if arom else {Chem.BondType.SINGLE: '-', Chem.BondType.DOUBLE: '=',
+                                                      Chem.BondType.TRIPLE: '#'}.get(bd.GetBondType(), '~'))
+            rw.AddBond(pos[i], pos[j], Chem.BondType.SINGLE)
+            rw.ReplaceBond(rw.GetNumBonds() - 1, q)
+    weights = [(m.GetAtomWithIdx(i).GetIsotope() / 100.0 if m.GetAtomWithIdx(i).GetIsotope() else 1.0) for i in real]
+    open_ = [any(n.GetAtomicNum() == 0 for n in m.GetAtomWithIdx(i).GetNeighbors()) for i in real]
+    return rw.GetMol(), weights, open_
+
+
+def place_beads(smiles, beads, max_solutions=50):
+    """Place fragment-only beads (CGSmiles) on the whole source molecule. A placement of a bead maps its real
+    atoms onto the molecule; only atoms that carried a bonding descriptor may bond to atoms outside the bead.
+    A solution places every bead so that each heavy atom's weights sum to one. Returns (mol, solutions), each
+    solution a list of {atom index: weight}, one per bead; several solutions differ by symmetry or ambiguity."""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError('source SMILES does not parse')
+    heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+    cands = []
+    for b in beads:
+        q, w, op = _fragment_query(b['fragment_smiles'])
+        seen, lst = set(), []
+        for match in mol.GetSubstructMatches(q, uniquify=False, useChirality=False, maxMatches=5000):
+            members = set(match)
+            if any(not op[k] and any(n.GetAtomicNum() > 1 and n.GetIdx() not in members
+                                     for n in mol.GetAtomWithIdx(i).GetNeighbors()) for k, i in enumerate(match)):
+                continue
+            cand = {i: w[k] for k, i in enumerate(match)}
+            key = tuple(sorted(cand.items()))
+            if key not in seen:
+                seen.add(key)
+                lst.append(cand)
+        if not lst:
+            raise ValueError(f"bead {b['name']} ({b['fragment_smiles']}) does not occur in the source SMILES")
+        cands.append(lst)
+    # visit beads along the CG graph, so each bead is placed next to the CG neighbours already placed
+    nb = [set(b.get('cg_neighbours', [])) for b in beads]
+    order, seen_b = [], set()
+    while len(order) < len(beads):
+        start = min((k for k in range(len(beads)) if k not in seen_b), key=lambda k: len(cands[k]))
+        queue = [start]
+        seen_b.add(start)
+        while queue:
+            k = queue.pop(0)
+            order.append(k)
+            for j in sorted(nb[k], key=lambda j: len(cands[j])):
+                if j not in seen_b:
+                    seen_b.add(j)
+                    queue.append(j)
+
+    def touches(c1, c2):
+        if set(c1) & set(c2):
+            return True
+        return any(n.GetIdx() in c2 for i in c1 for n in mol.GetAtomWithIdx(i).GetNeighbors())
+
+    sols, tot, pick, steps, strict = [], {i: 0.0 for i in heavy}, [None] * len(beads), [0], [True]
+
+    def rec(k):
+        if len(sols) >= max_solutions:
+            return
+        steps[0] += 1
+        if steps[0] > 200000:
+            raise ValueError('placement search limit reached')
+        if k == len(order):
+            if all(abs(v - 1.0) < 1e-6 for v in tot.values()):
+                sols.append(list(pick))
+            return
+        bi = order[k]
+        for c in cands[bi]:
+            if any(tot[i] + w > 1.0 + 1e-6 for i, w in c.items()):
+                continue
+            if strict[0] and any(pick[j] is not None and not touches(c, pick[j]) for j in nb[bi]):
+                continue
+            for i, w in c.items():
+                tot[i] += w
+            pick[bi] = c
+            rec(k + 1)
+            pick[bi] = None
+            for i, w in c.items():
+                tot[i] -= w
+    rec(0)
+    if not sols:  # some CG bonds join beads with no atomistic bond between them (ring-stiffening edges)
+        strict[0], steps[0] = False, 0
+        rec(0)
+    return mol, sols
+
+
+def resolve_on_molecule(smiles, beads):
+    """Give fragment-only beads, in place, the signature they have in the source molecule: a CGSmiles fragment is
+    a definition shared by several beads (a terminal and a middle CCC use one `[$]CCC[$]` fragment), so its
+    own signature is not the signature of each bead. A bead whose placements disagree, or a molecule the
+    fragments do not partition, keeps no signature (`signature_error`): it cannot support rung 1."""
+    try:
+        mol, sols = place_beads(smiles, beads)
+        if not sols:
+            raise ValueError('the fragments do not partition the source molecule (squash operator, repeats or '
+                             'weights not resolved)')
+    except Exception as ex:  # noqa: BLE001  (recorded: such beads cannot support rung 1)
+        for b in beads:
+            b['signature_error'] = str(ex)
+            b['signature'] = None
+        return
+    for k, b in enumerate(beads):
+        sigs = {fragment_signature(mol, s[k]) for s in sols}
+        if len(sigs) == 1:
+            b['signature'] = sigs.pop()
+        else:
+            b['signature_error'] = f'{len(sigs)} different placements of this bead on the source molecule'
+            b['signature'] = None
+
+
 # ------------------------------------------------------------------ CGSmiles fragments
 
 _TOK = re.compile(r'(\[[^\]]*\]|Br|Cl|[BCNOPSFI]|[bcnops]|%\d\d|\d|[-=#:/\\.$]|\(|\))')
 
 
+def _half(t):
+    """Atom token with weight label 50 (a squashed atom, shared with the neighbouring bead), unless it already
+    carries a weight label."""
+    if t == '*' or re.match(r'^\[\d', t):
+        return t
+    return f'[50{t[1:-1]}]' if t.startswith('[') else f'[50{t}]'
+
+
 def _cgsmiles_fragment_to_smiles(s):
-    """One CGSmiles fragment (e.g. `[$]COC[$]`, `O[C;0.5][$a]`) -> SMILES with dummies for bonding
-    descriptors, isotope labels for partial weights (weight 0 -> dummy). Raises ValueError if unparsable."""
+    """One CGSmiles fragment (e.g. `[$]COC[$]`, `O[C;0.5][$a]`, `c[!A]cc[!A]`) -> SMILES with dummies for
+    bonding descriptors, isotope labels for partial weights (weight 0 -> dummy). A squash descriptor `[!...]`
+    marks its atom as shared with the neighbouring bead: weight 0.5 unless the fragment gives one, plus a
+    dummy. Raises ValueError if unparsable."""
     toks = _TOK.findall(s)
     if ''.join(toks) != s:
         raise ValueError(f'unparsed characters in {s!r}')
-    out, leading, pending_bond, seen_atom = [], 0, '', False
+    out, leading, pending_bond, seen_atom, last_atom, lead_squash = [], 0, '', False, None, False
     for t in toks:
         if t.startswith('[') and t[1:2] in '$<>!':
+            squash = t[1:2] == '!'
             if not seen_atom:
                 leading += 1
+                lead_squash = lead_squash or squash
             else:
+                if squash:
+                    out[last_atom] = _half(out[last_atom])
                 out.append(f'({pending_bond}*)')
                 pending_bond = ''
             continue
@@ -121,12 +268,48 @@ def _cgsmiles_fragment_to_smiles(s):
         if pending_bond:
             out.append(pending_bond)
             pending_bond = ''
+        is_atom = t[0].isalpha() or t.startswith('[') or t == '*'
+        if is_atom and not seen_atom and lead_squash:
+            t = _half(t)
         out.append(t)
-        if (t[0].isalpha() or t.startswith('[') or t == '*') and not seen_atom:
+        if is_atom:
+            last_atom = len(out) - 1
+        if is_atom and not seen_atom:
             seen_atom = True
             out.extend(['(*)'] * leading)
             leading = 0
     return ''.join(out)
+
+
+def cg_graph(block):
+    """Nodes and bonds of the CG block of a CGSmiles string: `[#X]`, `[#X]|n` (n bonded copies), branches,
+    ring closures and `.`; bond-order symbols are ignored. Raises ValueError on anything else."""
+    toks = re.findall(r'\[#[^\]]+\](?:\|\d+)?|%\d\d|\d|[().]|[-=#~:$]', block)
+    if ''.join(toks) != block:
+        raise ValueError(f'unparsed CG block {block!r}')
+    if re.search(r'\)\|\d', block):
+        raise ValueError('repeat of a group of CG nodes is not supported')
+    names, edges, stack, rings, prev = [], set(), [], {}, None
+    for t in toks:
+        if t.startswith('[#'):
+            m = re.match(r'\[#([^\]]+)\](?:\|(\d+))?$', t)
+            for _ in range(int(m.group(2)) if m.group(2) else 1):
+                names.append(m.group(1))
+                if prev is not None:
+                    edges.add((prev, len(names) - 1))
+                prev = len(names) - 1
+        elif t == '(':
+            stack.append(prev)
+        elif t == ')':
+            prev = stack.pop()
+        elif t == '.':
+            prev = None
+        elif t[0].isdigit() or t[0] == '%':
+            if t in rings:
+                edges.add((rings.pop(t), prev))
+            else:
+                rings[t] = prev
+    return names, edges
 
 
 def cgsmiles_beads(cgsmiles, valid_types):
@@ -140,7 +323,7 @@ def cgsmiles_beads(cgsmiles, valid_types):
         if not m:
             raise ValueError(f'bad fragment {frag!r}')
         frags[m.group(1)] = m.group(2)
-    cg_names = re.findall(r'\[#([^\]]+)\]', parts[0])
+    cg_names, edges = cg_graph(parts[0].strip('{}'))
     out = []
     for k, name in enumerate(cg_names):
         if name not in frags:
@@ -176,8 +359,10 @@ def cgsmiles_beads(cgsmiles, valid_types):
         for at in fm.GetAtoms():
             if at.GetAtomicNum() > 0 and at.GetSymbol().islower():
                 at.SetIsAromatic(True)
-        out.append({'name': f'{name}#{k + 1}', 'type': typ, 'signature': _normalise(_aromatic_bonds(fm)),
-                    'fragment_cgsmiles': frags[name]})
+        fa = _aromatic_bonds(fm)
+        out.append({'name': f'{name}#{k + 1}', 'type': typ, 'signature': _normalise(fa),
+                    'cg_neighbours': sorted({j for e in edges if k in e for j in e if j != k}),
+                    'fragment_cgsmiles': frags[name], 'fragment_smiles': Chem.MolToSmiles(fa, canonical=False)})
     return out
 
 
@@ -327,6 +512,7 @@ def reference_beads(index_path, bible_rows, valid_types, project):
                 beads, how = ndx_beads(e, project), 'ndx'
             elif e.get('mapping_cgsmiles'):
                 beads, how = cgsmiles_beads(e['mapping_cgsmiles'], valid_types), 'cgsmiles'
+                resolve_on_molecule(e['canonical_isomeric_smiles'], beads)
             else:
                 atoms = _one_moleculetype_atoms(e, project)
                 if atoms is not None and len(atoms) == 1:
@@ -345,8 +531,12 @@ def reference_beads(index_path, bible_rows, valid_types, project):
         try:
             if not r.get('cgsmiles'):
                 raise ValueError('no CGSmiles')
+            if not r.get('smiles'):
+                raise ValueError('no source SMILES: the fragments cannot be placed')
+            beads = cgsmiles_beads(r['cgsmiles'], valid_types)
+            resolve_on_molecule(r['smiles'], beads)
             out[r['reference_id']] = {'how': 'cgsmiles', 'source_path': r['source_path'], 'locator': r['locator'],
-                                      'name': r['name'], 'beads': cgsmiles_beads(r['cgsmiles'], valid_types)}
+                                      'name': r['name'], 'beads': beads}
         except Exception as ex:  # noqa: BLE001
             out[r['reference_id']] = {'error': str(ex), 'source_path': r['source_path'], 'name': r['name']}
     return out

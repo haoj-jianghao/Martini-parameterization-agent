@@ -369,7 +369,8 @@ def cmd_open(a):
         for b in r['beads']:
             extra = f"  atoms in reference SMILES {b['heavy_atoms_in_reference_smiles']}" if 'heavy_atoms_in_reference_smiles' in b else \
                     (f"  CGSmiles fragment {b['fragment_cgsmiles']}" if 'fragment_cgsmiles' in b else '')
-            print(f"    {b['name']:<8} {b['type'] or '?':<6} {b['signature']:<24}{extra}")
+            sig = b['signature'] or f"(no signature: {b.get('signature_error')}; cannot support rung 1)"
+            print(f"    {b['name']:<8} {b['type'] or '?':<6} {sig:<24}{extra}")
     ann = des['analogue_annotations'].setdefault(a.ref, {'used': False, 'used_for': [], 'opened': [], 'reason': None})
     ann['opened'] = sorted(set(ann.get('opened', [])) | set(opened))
     save(md, des, 'open', vars(a))
@@ -491,6 +492,8 @@ def cmd_bead(a):
         sb = next((b for b in r['beads'] if b['name'] == bname), None)
         if sb is None:
             die(f'{rid} has no bead {bname}; its beads: {[b["name"] for b in r["beads"]]}')
+        if not sb['signature']:
+            die(f'{rid}:{bname} has no verified signature ({sb.get("signature_error")}); it cannot support rung 1')
         if sb['signature'] != sig:
             die(f'not the same fragment: target {sig} vs {rid}:{bname} {sb["signature"]}. Rung 1 needs the same heavy atoms '
                 f'in the same bonding context. Precedents that do match: {pre_txt or "none"}; otherwise use rung 2.')

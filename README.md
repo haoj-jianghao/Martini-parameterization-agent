@@ -13,7 +13,7 @@ Modes: **prepare** (a pinned, locked reference library, once per site), **genera
 | --- | --- |
 | The skill | `build-martini-agent/` (copy the whole folder; `SKILL.md` alone is not self-contained) |
 | Reference manifest | `reference_manifest.json`: every reference source, how to acquire it, licence status, bundled or not, SHA-256 of every file |
-| Locks | `locks/skill.lock.json` (skill v16), `locks/references.lock.json` (reference snapshot v7, our site) |
+| Locks | `locks/skill.lock.json` (skill v16.1), `locks/references.lock.json` (reference snapshot v7, our site) |
 | Maintainer tool | `tools/make_manifest.py` (build the manifest, assemble the bundle) |
 | Python environment | `environment.yml` |
 | References bundle | Release asset `martini-agent-references-v7.tar.gz` with `SHA256SUMS`, not in git |
