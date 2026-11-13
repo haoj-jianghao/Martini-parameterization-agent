@@ -1206,9 +1206,10 @@ def cmd_finalize(a):
                      'bonded_stage': bonded['software']},
         'model_identifier': des.get('authored_by', 'unknown'),
         'agent_session': {'bound_moldir': os.environ.get('MARTINI_MOLDIR'), 'batch': os.environ.get('MARTINI_BATCH'),
+                          'launch': os.environ.get('MARTINI_LAUNCH'),
                           'one_molecule_session': bool(os.environ.get('MARTINI_MOLDIR'))
                           and Path(os.environ['MARTINI_MOLDIR']).resolve() == md.resolve(),
-                          'note': 'set by scripts/batch.py, which starts one agent session per molecule'},
+                          'note': 'set by scripts/batch.py (one agent session per molecule) or, for a fallback sub-agent, by <moldir>/agent_env.sh'},
         'design_provenance': design_provenance(md),
         'seeds': {'conformer_embedding': SEED, 'gen_seed_eq1': SEED},
         'hashes': {'request_json': sha256(md / 'input/request.json'), 'environment_json': sha256(ENV_PATH),
@@ -1271,7 +1272,7 @@ def write_report(md, req, des, mp, par, ana, val, man, exe, bonded):
     dp, ses = man.get('design_provenance', {}), man.get('agent_session', {})
     R.append(f"- Decision record written by scripts/design.py: {dp.get('written_by_design_tool')}"
              + (f" ({dp['reason']})" if dp.get('reason') else '')
-             + f"; one-molecule agent session (scripts/batch.py): {ses.get('one_molecule_session')}")
+             + f"; one-molecule agent session: {ses.get('one_molecule_session')} (launch: {ses.get('launch') or 'not recorded'})")
     R.append(f"- Unresolved terms: {', '.join(val['unresolved_terms']) or 'none'}")
     used = [h for h in ana['hits'] if h['used']]
     R.append(f"- Analogue search: {ana['n_hits']} hits, {len(used)} used: " + ', '.join(h['reference_id'] for h in used))
@@ -1348,10 +1349,46 @@ def write_report(md, req, des, mp, par, ana, val, man, exe, bonded):
 
 
 # ---------------------------------------------------------------- summary
+def design_sessions(md):
+    """From design_log.jsonl: launch path(s) and whether every decision came from one session bound to this folder."""
+    p = md / 'decisions/design_log.jsonl'
+    if not p.exists():
+        return {'n_entries': 0, 'launch': [], 'bound_to_own_folder': None}
+    ses = [json.loads(l).get('session') or {} for l in p.read_text().splitlines() if l.strip()]
+    keys = {json.dumps(x, sort_keys=True) for x in ses}
+    bound = all(x.get('MARTINI_MOLDIR') and Path(x['MARTINI_MOLDIR']).resolve() == md.resolve() for x in ses)
+    return {'n_entries': len(ses), 'n_distinct_session_records': len(keys), 'bound_to_own_folder': bound,
+            'launch': sorted({x.get('MARTINI_LAUNCH') or 'not recorded' for x in ses})}
+
+
+def stage_reached(md):
+    """Last stage with an output, for a molecule without validation.json."""
+    ex = md / 'test/execution.json'
+    if ex.exists():
+        steps = rjson(ex).get('steps', [])
+        bad = [st['stage'] for st in steps if st.get('result') != 'pass']
+        return 'test failed at ' + bad[0] if bad else 'test passed, not finalized'
+    for f, name in (('model/molecule.itp', 'build'), ('decisions/bonded.json', 'bonded'), ('decisions/design.json', 'design'),
+                    ('input/request.json', 'input')):
+        if (md / f).exists():
+            return name
+    return 'not started'
+
+
 def cmd_summary(a):
     bd = Path(a.batchdir)
+    batch = rjson(bd / 'batch.json') if (bd / 'batch.json').exists() else {}
+    ids = batch.get('molecules') or sorted(p.name for p in bd.iterdir() if p.is_dir() and p.name != 'logs'
+                                           and any((p / f).exists() for f in ('agent_prompt.txt', 'input', 'validation.json')))
     rows = []
-    for md in sorted(p for p in bd.iterdir() if p.is_dir() and (p / 'validation.json').exists()):
+    for mid in ids:
+        md = bd / mid
+        ds = design_sessions(md) if md.is_dir() else {'n_entries': 0, 'launch': [], 'bound_to_own_folder': None}
+        if not (md / 'validation.json').exists():
+            rows.append({'molecule_id': mid, 'status': 'not_finalized',
+                         'stage_reached': stage_reached(md) if md.is_dir() else 'no folder',
+                         'design_sessions': ds, 'launch': ds['launch']})
+            continue
         val = rjson(md / 'validation.json')
         mp = rjson(md / 'decisions/mapping.json')
         man = rjson(md / 'manifest.json')
@@ -1364,7 +1401,7 @@ def cmd_summary(a):
                 ev[p['evidence_class']] = ev.get(p['evidence_class'], 0) + 1
         sm = {c['check']: c for c in val['checks']}
         rows.append({'molecule_id': req['molecule_id'], 'name': req['name'], 'smiles': req['original_smiles'],
-                     'status': val['status'], 'n_beads': mp['n_beads'], 'bead_types': [b['type'] for b in mp['beads']],
+                     'status': val['status'], 'stage_reached': 'finalized', 'n_beads': mp['n_beads'], 'bead_types': [b['type'] for b in mp['beads']],
                      'net_charge_e': mp['net_charge_e'], 'provisional_types': val['provisional_types'],
                      'unresolved_terms': val['unresolved_terms'], 'term_evidence_counts': ev,
                      'analogues_used': [h['reference_id'] for h in ana['hits'] if h['used']],
@@ -1376,20 +1413,34 @@ def cmd_summary(a):
                      'flagged_checks': [c['check'] for c in val['checks'] if c['result'] == 'flag'],
                      'one_molecule_session': man.get('agent_session', {}).get('one_molecule_session', False),
                      'design_by_tool': man.get('design_provenance', {}).get('written_by_design_tool', False),
+                     'design_sessions': ds, 'launch': ds['launch'],
                      'typing_rungs': [b['typing_ladder']['rung_used'] for b in mp['beads']]})
-    wjson(bd / 'summary.json', {'schema_version': 1, 'batch': bd.name, 'created_utc': now(), 'molecules': rows,
-                                'status_counts': {s: sum(1 for r in rows if r['status'] == s) for s in sorted({r['status'] for r in rows})}})
-    R = [f'# Batch {bd.name}', '', 'Built only from each molecule\'s records (validation.json, mapping.json, parameters.json, analogue_search.json, manifest.json).', '',
-         '| ID | Name | Status | Beads | Types | Rungs | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Flags | Exposed | Own session | Design tool |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+    launch = batch.get('launch', {}).get('status', 'no batch.json')
+    if launch == 'failed' and any('fallback' in r['launch'] for r in rows):
+        launch = 'failed; fallback sub-agents used'
+    counts = {s: sum(1 for r in rows if r['status'] == s) for s in sorted({r['status'] for r in rows})}
+    wjson(bd / 'summary.json', {'schema_version': 2, 'batch': bd.name, 'created_utc': now(), 'launch': launch,
+                                'agent_requested': batch.get('agent'), 'model_requested': batch.get('model'),
+                                'molecules': rows, 'status_counts': counts})
+    R = [f'# Batch {bd.name}', '', 'Built only from each molecule\'s records (validation.json, mapping.json, parameters.json, analogue_search.json, manifest.json, design_log.jsonl) and batch.json.', '',
+         f"- Launch: {launch}" + (f" ({batch['launch'].get('stage')} stage; see FALLBACK.md)" if batch.get('launch', {}).get('status') == 'failed' else ''),
+         f"- Requested agent and model: {batch.get('agent', '?')} {batch.get('model', '?')}. Sessions launched as `fallback` were started by another agent's own dispatcher; their agent and model are not recorded here.",
+         f"- Molecules: {len(rows)}; status counts: {', '.join(f'{k} {v}' for k, v in counts.items())}", '',
+         '| ID | Name | Status | Stage | Launch | One bound session | Beads | Types | Rungs | Charge | Provisional types | Unresolved | Term evidence | EM converged | Failed checks | Flags | Exposed | Design tool |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for r in rows:
-        R.append(f"| {r['molecule_id']} | {r['name']} | {r['status']} | {r['n_beads']} | {' '.join(r['bead_types'])} | {' '.join(map(str, r['typing_rungs']))} | {r['net_charge_e']} | "
+        bound = r['design_sessions']['bound_to_own_folder']
+        one = '-' if bound is None else str(bound and r['design_sessions'].get('n_distinct_session_records') == 1)
+        if r['status'] == 'not_finalized':
+            R.append(f"| {r['molecule_id']} | - | not_finalized | {r['stage_reached']} | {', '.join(r['launch']) or '-'} | {one} |" + ' - |' * 12)
+            continue
+        R.append(f"| {r['molecule_id']} | {r['name']} | {r['status']} | finalized | {', '.join(r['launch']) or '-'} | {one} | {r['n_beads']} | {' '.join(r['bead_types'])} | {' '.join(map(str, r['typing_rungs']))} | {r['net_charge_e']} | "
                  f"{', '.join(r['provisional_types']) or '-'} | {', '.join(r['unresolved_terms']) or '-'} | "
-                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {', '.join(r['flagged_checks']) or '-'} | {r['reference_exposed']} | {r['one_molecule_session']} | {r['design_by_tool']} |")
+                 f"{', '.join(f'{k}:{v}' for k, v in sorted(r['term_evidence_counts'].items()))} | {r['em_converged']} | {', '.join(r['failed_checks']) or '-'} | {', '.join(r['flagged_checks']) or '-'} | {r['reference_exposed']} | {r['design_by_tool']} |")
     R.append('')
-    R.append('Per-molecule details: `<ID>/report.md`.')
+    R.append('"One bound session": every design.py entry carries the same session record, bound to this molecule\'s folder. Per-molecule details: `<ID>/report.md`.')
     (bd / 'report.md').write_text('\n'.join(R) + '\n')
-    print('summary', {s: sum(1 for r in rows if r['status'] == s) for s in {r['status'] for r in rows}})
+    print('summary', launch, counts)
 
 
 def main():

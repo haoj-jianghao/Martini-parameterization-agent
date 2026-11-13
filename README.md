@@ -13,7 +13,7 @@ Modes: **prepare** (a pinned, locked reference library, once per site), **genera
 | --- | --- |
 | The skill | `build-martini-agent/` (copy the whole folder; `SKILL.md` alone is not self-contained) |
 | Reference manifest | `reference_manifest.json`: every reference source, how to acquire it, licence status, bundled or not, SHA-256 of every file |
-| Locks | `locks/skill.lock.json` (skill v16.1), `locks/references.lock.json` (reference snapshot v7, our site) |
+| Locks | `locks/skill.lock.json` (skill v16.2), `locks/references.lock.json` (reference snapshot v7, our site) |
 | Maintainer tool | `tools/make_manifest.py` (build the manifest, assemble the bundle) |
 | Python environment | `environment.yml` |
 | References bundle | Release asset `martini-agent-references-v7.tar.gz` with `SHA256SUMS`, not in git |
@@ -186,7 +186,16 @@ python build-martini-agent/scripts/batch.py run --molecules molecules.tsv --batc
   --agent claude --model claude-haiku-5-5 --jobs 4     # or: --agent codex --model gpt-5
 ```
 
-The launcher creates `runs/mybatch-<UTC>/<ID>/` and starts one headless agent session for each molecule (`claude -p` or `codex exec`), with the prompt in `build-martini-agent/assets/agent_prompt.md` and `MARTINI_MOLDIR` set to that molecule's folder; the skill's scripts refuse any other folder in that session. `--dry-run` writes the folders and `batch.json` without starting agents; `batch.py prompt` prints one molecule's prompt. Other agent command lines go in `environment.json` as `agent_commands`. When all sessions end, the launcher writes the batch `report.md` and `summary.json`, which show for each molecule whether it was built in its own session and whether its design was recorded with `design.py`.
+The launcher creates `runs/mybatch-<UTC>/<ID>/` and starts one headless agent session for each molecule (`claude -p` or `codex exec`), with the prompt in `build-martini-agent/assets/agent_prompt.md` and `MARTINI_MOLDIR` set to that molecule's folder; the skill's scripts refuse any other folder in that session. `--dry-run` writes the folders and `batch.json` without starting agents; `batch.py prompt` prints one molecule's prompt. Other agent command lines go in `environment.json` as `agent_commands`. When all sessions end, the launcher writes the batch `report.md` and `summary.json`. They list every molecule with the stage it reached, how its session was launched, whether all its decisions came from one session bound to its folder, and whether its design was recorded with `design.py`.
+
+Each session needs to write the agent CLI's state folder (`~/.claude`, or `$CODEX_HOME`, by default `~/.codex`) and to reach the agent's service. The launcher checks both before starting anything, without an API call. If the check fails, or a session dies before doing any molecule work, it starts no further sessions, exits with code 3, and writes `FALLBACK.md` in the batch folder with the reason and the next steps. The usual cause is starting the launcher from inside an agent's sandbox. Codex's `workspace-write` sandbox, for example, has no network and makes `CODEX_HOME` read-only. Either run the command from a normal terminal, or start the Codex session that will launch the batch with:
+
+```bash
+codex -c sandbox_workspace_write.network_access=true \
+      -c 'sandbox_workspace_write.writable_roots=["'"${CODEX_HOME:-$HOME/.codex}"'"]'
+```
+
+Otherwise the agent may finish the batch with its own sub-agents: one fresh sub-agent per molecule, each given the prepared `<ID>/agent_prompt.txt` and `<ID>/agent_env.sh`. It then runs `cgbuild.py summary`, which marks those molecules as `fallback`. Site-specific checks (another agent CLI, an API gateway) go in `environment.json` as `agent_preflight` (`build-martini-agent/references/environment.md`).
 
 ### 6. The result
 
@@ -235,6 +244,7 @@ Open `report.md` first.
 | `cgbuild.py input` rejects the topology | The message says why: different atoms or bonds than the SMILES (often a different protonation state or missing hydrogens), a net charge that differs from the SMILES, or an unsupported section or function type. Regenerate the topology for the exact SMILES |
 | Stage 4 (`bonded`) fails with "no AA topology supplied" | The molecule was started without `--aa-topology`; re-run `cgbuild.py input` with it |
 | `reference_lock.py verify` fails | A reference file changed after locking; restore it or make a new lock, never relock silently |
+| `batch.py` exits with code 3, "launch failed" | The agent sessions cannot write the agent CLI's state folder or reach its service, usually because the launcher runs inside an agent sandbox. Read `FALLBACK.md` in the batch folder: rerun outside the sandbox, or let the agent finish with one sub-agent per molecule (section 5) |
 | Status `blocked` | Read the reason in `report.md`; most are mapping problems the agent should repair (for example a rigid group above four beads) |
 
 ## Maintainers: building a release

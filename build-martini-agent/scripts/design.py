@@ -84,7 +84,7 @@ def die(msg):
 
 
 def session():
-    return {k: os.environ.get(k) for k in ('MARTINI_BATCH', 'MARTINI_MOLDIR', 'MARTINI_AGENT', 'MARTINI_MODEL')
+    return {k: os.environ.get(k) for k in ('MARTINI_BATCH', 'MARTINI_MOLDIR', 'MARTINI_LAUNCH', 'MARTINI_AGENT', 'MARTINI_MODEL')
             if os.environ.get(k)}
 
 

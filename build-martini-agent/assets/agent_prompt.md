@@ -9,8 +9,9 @@ bound to this one molecule: the scripts refuse any other folder, and other molec
 own sessions. Make the mapping, bead-type and charge decisions yourself, for this molecule, and record each one
 with scripts/design.py as the skill describes. Do not write decisions/design.json by hand or with your own code.
 
-Environment (already set for every shell command; do not change it): MARTINI_ENV={env},
-MARTINI_MOLDIR={moldir}, MARTINI_GMX_THREADS={gmx_threads}. Run Python with {python}. Leave OMP_NUM_THREADS unset.
+Environment (do not change it): MARTINI_ENV={env}, MARTINI_MOLDIR={moldir}, MARTINI_GMX_THREADS={gmx_threads}.
+The launcher sets these for every shell command. If MARTINI_MOLDIR is not set in your shell, begin every shell
+command with `. {moldir}/agent_env.sh && `. Run Python with {python}. Leave OMP_NUM_THREADS unset.
 
 Run the full sequence for this molecule: cgbuild.py input (with --aa-topology), design.py (init ... check),
 cgbuild.py bonded, build, test, finalize, then scripts/multi_seed_check.py {moldir}/multi_seed {moldir} and
